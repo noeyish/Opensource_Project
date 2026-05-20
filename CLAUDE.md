@@ -205,6 +205,9 @@ make logs     # 전체 로그 스트리밍
 make ps       # 컨테이너 상태 확인
 make up-obs   # 관측 스택 추가 기동 (Loki + Promtail + Prometheus + Grafana)
 make down-obs # 관측 스택 종료
+make up-sonar # SonarQube 정적 분석 기동 (포트 9000) — 옵트인
+make scan     # 코드 1회 스캔 (SONAR_TOKEN 필요)
+make down-sonar
 ```
 
 ## 모니터링
@@ -242,6 +245,13 @@ make down-obs # 관측 스택 종료
 - **Ollama** AI 요약(교수 연구 분야)은 `host.docker.internal:11434`로 호스트 Ollama에 접근 — 로컬에서 별도로 `ollama serve` 실행 필요. 현재 모델: `exaone3.5:7.8b`.
 - **Groq** API(`llama-3.3-70b`)는 강의계획서 PDF 분석에 사용 — `GROQ_API_KEY` 필요.
 - **Gemini** API(`gemini-2.5-flash`)는 관리자 챗·보안 분석에 사용 — `GEMINI_API_KEY` 필요.
+
+### SonarQube (코드 품질)
+
+- `make up-sonar` 는 단독으로 띄울 수 있는 옵트인 스택 (compose project 명 `sonar`). 메모리 ~2GB 필요해서 평소엔 down.
+- 최초 기동 후 `http://localhost:9000` → admin/admin 로그인 → 비번 변경 → My Account / Security 에서 토큰 발급 → `.env` 의 `SONAR_TOKEN` 에 저장.
+- CI 통합은 `.github/workflows/ci.yml` 의 `sonar-scan` job. GitHub Repository 의 **Variables 에 `SONAR_HOST_URL`**, **Secrets 에 `SONAR_TOKEN`** 두 개 설정해야 PR 마다 자동 스캔.
+- Quality Gate 는 SonarQube 웹 UI 에서 `Sonar way` 기본 대신 **"New Code only"** 프로파일을 권장 — 누적된 legacy 부채를 무시하고 신규 코드만 게이트.
 
 ### 모니터링
 

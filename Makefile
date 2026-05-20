@@ -2,11 +2,13 @@ COMPOSE         = docker-compose.yml
 COMPOSE_DEV     = docker-compose.dev.yml
 COMPOSE_OBS     = docker-compose.observability.yml
 COMPOSE_OBS_APP = docker-compose.observability.app.yml
+COMPOSE_SONAR   = docker-compose.sonarqube.yml
 
 DC_DEV      = docker compose -f $(COMPOSE) -f $(COMPOSE_DEV)
 DC_PROD     = docker compose -f $(COMPOSE) -f $(COMPOSE_OBS_APP)
 DC_OBS      = docker compose -f $(COMPOSE) -f $(COMPOSE_DEV) -f $(COMPOSE_OBS)
 DC_PROD_OBS = docker compose -f $(COMPOSE) -f $(COMPOSE_OBS)
+DC_SONAR    = docker compose -p sonar -f $(COMPOSE_SONAR)
 
 # ── 로컬 개발 ─────────────────────────────────────────
 dev:
@@ -93,3 +95,25 @@ jmeter-run:
 
 jmeter-report:
 	@ls -lt infra/loadtest/jmeter/results/*.jtl 2>/dev/null | head -5 || echo "결과 없음"
+
+# ── SonarQube 정적 분석 (옵트인) ────────────────────────
+# 최초 기동: make up-sonar → http://localhost:9000 (admin/admin → 비번 변경 → 토큰 발급)
+# 분석    : make scan      (.env 의 SONAR_TOKEN, SONAR_HOST_URL 사용)
+# 종료    : make down-sonar
+#
+# 메모리 ~2GB 필요. 분석 끝나면 down-sonar 권장.
+up-sonar:
+	$(DC_SONAR) up -d sonarqube sonar-db
+
+down-sonar:
+	$(DC_SONAR) down
+
+logs-sonar:
+	$(DC_SONAR) logs -f sonarqube
+
+# 1회성 분석 — sonar-scanner-cli 컨테이너로 코드 스캔.
+# 사전 조건: pytest --cov 로 reports/coverage.xml 이 최신 상태여야 정확.
+# SONAR_HOST_URL / SONAR_TOKEN 은 docker-compose.sonarqube.yml 의 scanner.environment 에서 처리.
+# (셸 변수 치환 회피 — Windows make + cmd.exe 가 ${VAR:-default} 문법을 해석 못 함)
+scan:
+	$(DC_SONAR) --profile scan run --rm scanner
