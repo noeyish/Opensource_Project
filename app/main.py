@@ -47,17 +47,25 @@ os.makedirs("static/uploads/posts", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
-# OWASP ZAP 베이스라인 스캔이 잡는 보안 헤더 결함(High 12건)을 일괄 차단.
+# OWASP ZAP 베이스라인 스캔이 잡는 보안 헤더 결함을 일괄 차단.
 # 헤더 의미:
-#   Strict-Transport-Security : HTTPS 강제 (HSTS). HTTP 환경에선 브라우저가 무시 — 무해.
-#   X-Frame-Options=DENY      : 다른 사이트가 iframe 으로 우리 페이지를 감싸지 못함 (clickjacking 차단).
-#   X-Content-Type-Options    : 브라우저의 MIME sniffing 차단 (선언된 Content-Type 만 신뢰).
-#   Referrer-Policy           : 외부로 referrer 누출 최소화 (cross-origin 시 origin 만).
-#   Permissions-Policy        : 카메라/마이크/위치 등 강한 권한 기본 차단 — 우리 백엔드는 안 씀.
-#   Content-Security-Policy   : 응답 본문이 대부분 JSON 이지만 /docs Swagger UI HTML 도 있으므로
-#                               cdn.jsdelivr.net (Swagger 자산) + 'unsafe-inline' 까지 허용.
-#                               frame-ancestors 'none' 으로 X-Frame-Options 와 이중 차단.
+#   Strict-Transport-Security    : HTTPS 강제 (HSTS). HTTP 환경에선 브라우저가 무시 — 무해.
+#   X-Frame-Options=DENY         : 다른 사이트가 iframe 으로 우리 페이지를 감싸지 못함 (clickjacking 차단).
+#   X-Content-Type-Options       : 브라우저의 MIME sniffing 차단 (선언된 Content-Type 만 신뢰).
+#   Referrer-Policy              : 외부로 referrer 누출 최소화 (cross-origin 시 origin 만).
+#   Permissions-Policy           : 카메라/마이크/위치 등 강한 권한 기본 차단 — 우리 백엔드는 안 씀.
+#   Content-Security-Policy      : 응답 본문이 대부분 JSON 이지만 /docs Swagger UI HTML 도 있으므로
+#                                  cdn.jsdelivr.net (Swagger 자산) + 'unsafe-inline' 까지 허용.
+#                                  frame-ancestors 'none' 으로 X-Frame-Options 와 이중 차단.
+#   Cross-Origin-Resource-Policy : 다른 origin 에서 우리 응답을 fetch/embed 못 하게 (Spectre 류 차단).
+#                                  same-origin = 우리 도메인만 허용. ZAP "CORP Missing" 결함 차단.
+#   Cache-Control                : API 응답(JSON) 은 항상 fresh — 토큰/세션 정보 등 캐시 X.
+#                                  static 자산(/static/*) 과 메트릭(/metrics) 은 캐싱 정상 — 예외.
+#                                  ZAP "Storable and Cacheable Content" 결함 차단.
 # setdefault 사용 — 라우터가 명시적으로 다른 값을 셋팅하면 그쪽 우선.
+_NO_STORE_SKIP_PREFIXES = ("/static/", "/metrics")
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response: Response = await call_next(request)
@@ -69,6 +77,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "Permissions-Policy",
             "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
         )
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; "
@@ -81,6 +90,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "base-uri 'self'; "
             "form-action 'self'",
         )
+        # static 자산 + Prometheus /metrics 는 캐싱 허용 (성능). 그 외 API 응답은 no-store.
+        path = request.url.path
+        if not any(path.startswith(p) for p in _NO_STORE_SKIP_PREFIXES):
+            response.headers.setdefault("Cache-Control", "no-store")
         return response
 
 
