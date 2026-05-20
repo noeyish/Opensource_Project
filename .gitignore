@@ -73,10 +73,11 @@ $RECYCLE.BIN/
 __pycache__/
 *.py[cod]
 *$py.class
-.venv/
-venv/
+.venv*/
+venv*/
 ENV/
 .env
+.coverage
 auth_key.json  # 보안 파일 예시
 test_seoganpyo.db
 
@@ -129,6 +130,9 @@ frontend/test-results/
 
 ### 보안 스캔 결과 (Trivy 등) ###
 security-reports/
+
+### SonarQube scanner 작업 디렉토리 ###
+.scannerwork/
 
 ### 루트 Node 파일 (프론트엔드는 frontend/ 에서 관리) ###
 node_modules/

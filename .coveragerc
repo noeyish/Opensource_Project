@@ -1,0 +1,7 @@
+# coverage.py 설정.
+# relative_files=True 가 핵심 — coverage.xml 의 <source> 에 절대 경로 대신 상대 경로를 박아둠.
+# Windows 호스트에서 만든 커버리지 리포트를 Linux 컨테이너(sonar-scanner) 가 읽을 때
+# 경로가 안 맞아 "Cannot resolve file path" 가 떠 커버리지 임포트가 실패하는 문제 회피.
+[run]
+relative_files = True
+source = app
