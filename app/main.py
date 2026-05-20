@@ -1,11 +1,12 @@
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from app.api import auth, upload, courses, cart, history, users, admin, admin_chat, admin_security, admin_security_chat, syllabus, posts, contact, professors, portfolio, timetables
 from app.database import engine, Base, SessionLocal
 from app.models import user, course, professor, activity, post, report, notice, portfolio as portfolio_models, contact as contact_model, admin_message  # noqa: F401 — Base 테이블 등록용
@@ -44,6 +45,46 @@ Instrumentator().instrument(app).expose(app)
 
 os.makedirs("static/uploads/posts", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# OWASP ZAP 베이스라인 스캔이 잡는 보안 헤더 결함(High 12건)을 일괄 차단.
+# 헤더 의미:
+#   Strict-Transport-Security : HTTPS 강제 (HSTS). HTTP 환경에선 브라우저가 무시 — 무해.
+#   X-Frame-Options=DENY      : 다른 사이트가 iframe 으로 우리 페이지를 감싸지 못함 (clickjacking 차단).
+#   X-Content-Type-Options    : 브라우저의 MIME sniffing 차단 (선언된 Content-Type 만 신뢰).
+#   Referrer-Policy           : 외부로 referrer 누출 최소화 (cross-origin 시 origin 만).
+#   Permissions-Policy        : 카메라/마이크/위치 등 강한 권한 기본 차단 — 우리 백엔드는 안 씀.
+#   Content-Security-Policy   : 응답 본문이 대부분 JSON 이지만 /docs Swagger UI HTML 도 있으므로
+#                               cdn.jsdelivr.net (Swagger 자산) + 'unsafe-inline' 까지 허용.
+#                               frame-ancestors 'none' 으로 X-Frame-Options 와 이중 차단.
+# setdefault 사용 — 라우터가 명시적으로 다른 값을 셋팅하면 그쪽 우선.
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "img-src 'self' data: https://fastapi.tiangolo.com; "
+            "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'",
+        )
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
