@@ -21,6 +21,11 @@ logs:
 ps:
 	$(DC_DEV) ps
 
+# Playwright e2e용 테스트 계정 시드 (멱등)
+# 백엔드 컨테이너가 떠있어야 함 (make dev)
+e2e-seed:
+	$(DC_DEV) exec -T -e PYTHONPATH=/app backend python scripts/e2e_seed_user.py
+
 # ── 프로덕션 배포 ──────────────────────────────────────
 prod:
 	bash scripts/pre-deploy.sh
