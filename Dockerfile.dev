@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# 베이스 이미지는 Debian 코드네임 핀 필수 — prod Dockerfile 과 동일 정책.
+# `python:3.11-slim` unpin 은 Docker Hub 가 임의 시점에 다음 stable 로 떠내려보냄.
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -10,9 +12,15 @@ WORKDIR /app
 # admin_assistant.get_container_status는 docker CLI 필요하지만,
 # 로컬 개발에선 거의 사용 안 함. 필요하면 prod Dockerfile 사용 (또는 호스트 docker.sock 마운트로 대체).
 
-# 종속성 설치
+# 종속성 설치.
+# pip / wheel / setuptools 를 먼저 업그레이드 — base 이미지 기본 버전이
+#   pip 24.0  (CVE-2025-8869, CVE-2026-1703, CVE-2026-3219, CVE-2026-6357)
+#   wheel 0.45.1 (CVE-2026-24049 — path traversal → privesc)
+#   setuptools 79.0.1 (path traversal via wheel vendoring)
+# prod Dockerfile 과 동일 정책 — 버전 핀 박음 (hadolint DL3013, 재현성, 미래 회귀 방지).
 COPY requirements.txt .
-RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip==26.1.1 wheel==0.47.0 setuptools==82.0.1 \
+    && pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
 
 # 애플리케이션 코드 (compose에서 volume mount하므로 사실상 의미 없음)
 COPY ./app ./app
