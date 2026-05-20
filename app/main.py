@@ -18,6 +18,9 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+# httpx 는 매 요청을 INFO 로 찍는데 Discord webhook URL 같은 시크릿이 노출됨
+# (Loki 수집되면 누구나 채널 스팸 가능). WARNING 이상만 보이게 격상.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # 서버 실행 시 DB 테이블 생성
 Base.metadata.create_all(bind=engine)
