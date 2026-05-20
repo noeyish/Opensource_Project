@@ -4,7 +4,7 @@ import { useState, useMemo } from "react"
 import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { TimetableGrid } from "@/components/features/timetable-grid"
-import { type SlotChar, type Timetable, SLOT_LABELS } from "@/lib/api"
+import { type SlotChar, type Timetable, SLOT_LABELS, displaySlotName } from "@/lib/api"
 import type { Course as ApiCourse } from "@/types"
 import type { Course } from "@/lib/constants/course-data"
 
@@ -31,6 +31,12 @@ export function CompareModal({ open, onClose, timetables, mapApiCourse }: Compar
     const slotCounts = useMemo(() => {
         const m: Record<SlotChar, number> = { A: 0, B: 0, C: 0, D: 0 }
         for (const t of timetables) m[t.slot] = t.courses.length
+        return m
+    }, [timetables])
+
+    const slotNameMap = useMemo(() => {
+        const m: Record<SlotChar, string | null> = { A: null, B: null, C: null, D: null }
+        for (const t of timetables) m[t.slot] = t.name
         return m
     }, [timetables])
 
@@ -107,7 +113,7 @@ export function CompareModal({ open, onClose, timetables, mapApiCourse }: Compar
                                 }
                                 title={empty ? "비어있는 슬롯" : ""}
                             >
-                                <span className="font-semibold">{SLOT_LABELS[s]}</span>
+                                <span className="font-semibold">{displaySlotName(s, slotNameMap[s])}</span>
                                 <span className="text-xs opacity-75">({slotCounts[s]})</span>
                             </button>
                         )
@@ -143,11 +149,14 @@ export function CompareModal({ open, onClose, timetables, mapApiCourse }: Compar
                                                     className="text-base font-bold flex-shrink-0"
                                                     style={{ color: "#B0232A" }}
                                                 >
-                                                    {SLOT_LABELS[t.slot]}
+                                                    {displaySlotName(t.slot, t.name)}
                                                 </span>
-                                                <span className="text-xs text-muted-foreground truncate">
-                                                    {t.name ?? ""}
-                                                </span>
+                                                {/* 별명을 쓴 경우 작은 글씨로 원래 슬롯 ID 표기 — 비교 시 어떤 칸이 어떤 슬롯인지 식별 용이 */}
+                                                {t.name && t.name.trim() !== SLOT_LABELS[t.slot] && (
+                                                    <span className="text-[10px] text-muted-foreground/70 flex-shrink-0">
+                                                        ({SLOT_LABELS[t.slot]})
+                                                    </span>
+                                                )}
                                             </div>
                                             <span className="text-xs text-muted-foreground flex-shrink-0">
                                                 {courses.length}과목 · {totalCredits}학점
