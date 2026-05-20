@@ -96,6 +96,24 @@ def update_entry(
     return entry
 
 
+# ─── 전체 초기화 (프론트의 "전체 초기화" 버튼) ───────────────────
+# 주의: 아래 DELETE /{entry_id}보다 먼저 등록되어야 path param("all")으로 매칭되는 것을 막을 수 있다.
+@router.delete("/all", status_code=204)
+def reset_my_portfolio(
+    student_id: int = Depends(get_current_student_id),
+    db: Session = Depends(get_db),
+):
+    """현재 사용자의 포트폴리오 항목과 평가 이력을 모두 삭제."""
+    db.query(PortfolioEntry).filter(PortfolioEntry.student_id == student_id).delete(
+        synchronize_session=False
+    )
+    db.query(PortfolioEvaluation).filter(
+        PortfolioEvaluation.student_id == student_id
+    ).delete(synchronize_session=False)
+    db.commit()
+    return Response(status_code=204)
+
+
 @router.delete("/{entry_id}", status_code=204)
 def delete_entry(
     entry_id: int,

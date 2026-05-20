@@ -18,6 +18,7 @@ import {
   FolderGit2,
   AlertCircle,
   X,
+  RotateCcw,
   Star,
   StarHalf,
 } from "lucide-react"
@@ -152,6 +153,7 @@ export default function PortfolioPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
 
   const [evaluation, setEvaluation] = useState<PortfolioEvaluation | null>(null)
   const [evalError, setEvalError] = useState<{
@@ -334,6 +336,31 @@ export default function PortfolioPage() {
       alert(err instanceof Error ? err.message : "저장에 실패했습니다.")
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleResetAll = async () => {
+    const ok = window.confirm(
+      "포트폴리오에 저장된 모든 항목과 지금까지의 AI 평가 결과가 함께 삭제됩니다.\n정말 초기화할까요?",
+    )
+    if (!ok) return
+    setIsResetting(true)
+    try {
+      stopPolling()
+      await portfolioApi.resetAll()
+      setSections({
+        campus_activity: [newLocalEntry()],
+        external_activity: [newLocalEntry()],
+        certificate: [newLocalEntry()],
+        award: [newLocalEntry()],
+        project: [newLocalEntry()],
+      })
+      setEvaluation(null)
+      setEvalError(null)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "초기화에 실패했습니다.")
+    } finally {
+      setIsResetting(false)
     }
   }
 
@@ -799,6 +826,30 @@ export default function PortfolioPage() {
                 </>
               )}
             </Button>
+          </div>
+
+          {/* 위험 영역: 전체 초기화 */}
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/10 p-5">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-red-700 dark:text-red-300">
+                  포트폴리오 전체 초기화
+                </h3>
+                <p className="mt-1 text-xs text-red-600/80 dark:text-red-400/80 leading-relaxed">
+                  저장된 모든 항목과 지금까지의 AI 평가 결과가 함께 삭제됩니다. 되돌릴 수 없어요.
+                </p>
+              </div>
+              <Button
+                onClick={handleResetAll}
+                disabled={isResetting || isSaving}
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5 border-red-300 text-red-700 hover:bg-red-100 hover:text-red-800 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-950/40"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {isResetting ? "초기화 중..." : "전체 초기화"}
+              </Button>
+            </div>
           </div>
         </div>
       </main>
