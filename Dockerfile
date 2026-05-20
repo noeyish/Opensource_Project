@@ -25,9 +25,15 @@ WORKDIR /app
 # docker:27.5.1-cli 가 멀티아키 이미지라 빌드 플랫폼(amd64/arm64)에 맞는 바이너리가 자동 선택됨.
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 
-# 종속성 설치
+# 종속성 설치.
+# pip / wheel / setuptools 를 먼저 업그레이드 — python:3.11-slim-bookworm 의 기본 버전이
+#   pip 24.0  (CVE-2025-8869, CVE-2026-1703, CVE-2026-3219, CVE-2026-6357 — 4건)
+#   wheel 0.45.1 (CVE-2026-24049 — path traversal → privilege escalation)
+#   setuptools 79.0.1 (path traversal via wheel vendoring)
+# 모두 패키지 설치 단계에서 영향을 주므로 requirements 설치 전에 갱신.
 COPY requirements.txt .
-RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools \
+    && pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
 
 # 애플리케이션 코드 및 데이터 복사
 COPY ./app ./app
