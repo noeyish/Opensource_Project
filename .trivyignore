@@ -1,0 +1,15 @@
+# Trivy 스캔에서 무시할 룰 (CI 의 Trivy Security Scan + nightly ZAP 빌드가 읽음).
+#
+# 주의: 여기에 룰 적을 때는 반드시 사유 + 어느 파일에 해당하는지 코멘트로 명시.
+# 룰 ID 만 적으면 전체 프로젝트에 적용되니, prod 코드까지 영향가는지 한 번 더 검토 필수.
+
+# ── DS-0002: Image User Should Not Be 'Root' ───────────────────────────────────
+# 대상 파일: Dockerfile.dev, frontend/Dockerfile.dev (dev 환경 전용)
+# 사유:
+#   - Dockerfile.dev      : admin_assistant 가 docker.sock 호출하려면 root 필요
+#   - frontend/Dockerfile.dev : 호스트 볼륨 마운트(./frontend:/app)로 .next 캐시
+#                               작성하려면 컨테이너가 호스트 소유 파일에 쓰기 가능해야 함
+# 두 파일 모두 hadolint ignore=DL3002 + 인라인 사유 코멘트 박혀있음.
+# prod 3개(Dockerfile, frontend/Dockerfile, ocr-service/Dockerfile)는 모두 USER 적용됨 (PR #177).
+# hadolint(DL3002)가 prod 회귀 방지 안전망 역할.
+DS-0002
