@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.activity import History
 from app.models.course import Course
 from app.schemas.history import HistoryCreate, HistoryUpdate
+from app.services.special_courses_service import equiv_codes
 
 
 def get_student_histories(db: Session, student_id: int) -> List[History]:
@@ -212,14 +213,17 @@ def _recompute_retake_for(db: Session, student_id: int, course_code: str) -> Non
     """같은 (학생, course_code) 그룹의 모든 row 를 시간순으로 재정렬해
     가장 이른 학기 한 개만 is_retake=False, 나머지는 True 로 set.
 
+    동치 그룹(예: ABC0001 ↔ COR1010) 에 속한 코드는 한 묶음으로 묶어 함께 산정.
+
     NULL year/semester row 는 시간 비교 불가 → 그룹의 가장 뒤(재수강) 로 간주.
     호출자는 commit 책임을 진다 (이 함수는 flush 만).
     """
+    codes = equiv_codes(course_code)
     rows = (
         db.query(History)
         .filter(
             History.student_id == student_id,
-            History.course_code == course_code,
+            History.course_code.in_(codes),
         )
         .all()
     )

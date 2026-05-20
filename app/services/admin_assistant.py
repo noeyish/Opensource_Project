@@ -287,19 +287,20 @@ def get_evaluation_stats(db: Session, days: int = 7) -> dict:
     ]
     avg_duration = round(sum(durations) / len(durations), 2) if durations else None
 
-    score_buckets = {"0-39": 0, "40-59": 0, "60-79": 0, "80-100": 0}
+    # 0~6 정수 → 0~3 별점(0.5 단위) UI 와 동일 구간으로 버킷.
+    score_buckets = {"★0~1": 0, "★1~2": 0, "★2~3": 0, "★3": 0}
     for r in rows:
         if r.status != "completed" or r.alignment_score is None:
             continue
         s = r.alignment_score
-        if s < 40:
-            score_buckets["0-39"] += 1
-        elif s < 60:
-            score_buckets["40-59"] += 1
-        elif s < 80:
-            score_buckets["60-79"] += 1
+        if s <= 1:
+            score_buckets["★0~1"] += 1
+        elif s <= 3:
+            score_buckets["★1~2"] += 1
+        elif s <= 5:
+            score_buckets["★2~3"] += 1
         else:
-            score_buckets["80-100"] += 1
+            score_buckets["★3"] += 1
 
     return {
         "period_days": days,

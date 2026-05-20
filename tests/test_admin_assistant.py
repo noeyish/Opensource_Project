@@ -104,19 +104,21 @@ def test_unused_courses_includes_never_matched(db, test_course, test_course2):
 # ─── get_evaluation_stats ──────────────────────────────────────
 @pytest.fixture
 def sample_evaluations(db, test_user):
+    """별점 스케일(alignment_score 0~6) 기준 샘플.
+    6 → ★3 버킷, 3 → ★1~2 버킷."""
     now = datetime.utcnow()
     rows = [
         PortfolioEvaluation(
             student_id=test_user.student_id,
             status="completed",
-            alignment_score=85,
+            alignment_score=6,  # ★3
             created_at=now - timedelta(hours=1),
             completed_at=now - timedelta(hours=1) + timedelta(seconds=15),
         ),
         PortfolioEvaluation(
             student_id=test_user.student_id,
             status="completed",
-            alignment_score=45,
+            alignment_score=3,  # ★1~2
             created_at=now - timedelta(hours=2),
             completed_at=now - timedelta(hours=2) + timedelta(seconds=20),
         ),
@@ -138,8 +140,8 @@ def test_evaluation_stats_groups_by_status_and_code(db, sample_evaluations):
     assert stats["total"] == 3
     assert stats["by_status"] == {"completed": 2, "failed": 1}
     assert stats["failure_codes"] == {"rate_limited": 1}
-    assert stats["score_distribution"]["80-100"] == 1
-    assert stats["score_distribution"]["40-59"] == 1
+    assert stats["score_distribution"]["★3"] == 1
+    assert stats["score_distribution"]["★1~2"] == 1
     assert stats["avg_duration_seconds"] is not None
     assert stats["avg_duration_seconds"] > 0
     assert len(stats["sample_failures"]) == 1
@@ -150,7 +152,7 @@ def test_evaluation_stats_excludes_old_rows(db, test_user):
     old = PortfolioEvaluation(
         student_id=test_user.student_id,
         status="completed",
-        alignment_score=70,
+        alignment_score=4,  # 별점 스케일
         created_at=datetime.utcnow() - timedelta(days=30),
         completed_at=datetime.utcnow() - timedelta(days=30),
     )
