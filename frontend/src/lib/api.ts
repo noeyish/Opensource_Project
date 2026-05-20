@@ -622,6 +622,12 @@ export const portfolioApi = {
       body: JSON.stringify(sections),
     }),
 
+  // 전체 초기화 — 모든 항목과 평가 이력 삭제
+  resetAll: () =>
+    request<void>("/api/v1/portfolio/all", {
+      method: "DELETE",
+    }),
+
   // 평가 요청 — 즉시 pending 응답 반환 (백그라운드 처리)
   evaluate: () =>
     request<PortfolioEvaluation>("/api/v1/portfolio/evaluate", {
