@@ -6,7 +6,7 @@ import { Search, Plus, Heart, X, ExternalLink, ChevronLeft, ChevronRight, Chevro
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { type Course, isMajorCourse } from "@/lib/constants/course-data"
-import { type SlotChar, SLOT_SHORT_LABELS } from "@/lib/api"
+import { type SlotChar, displaySlotName } from "@/lib/api"
 
 const SLOTS: SlotChar[] = ["A", "B", "C", "D"]
 
@@ -17,6 +17,8 @@ interface BrowseCoursesProps {
   wishlistIds: Set<string>
   /** 각 강의가 들어있는 슬롯 목록 — 슬롯 버튼 disable/하이라이트 용 */
   slotMemberships?: Record<string, SlotChar[]>
+  /** 슬롯별 사용자 별명 — dropdown 라벨에 표시 (없으면 기본 A/B/C/D) */
+  slotNames?: Record<SlotChar, string | null>
   /** 하트 클릭 — cart 토글 */
   onToggleWishlist: (id: string) => void
   /** 슬롯 선택 클릭 — 시간표에 추가 */
@@ -34,6 +36,7 @@ export function BrowseCourses({
   liberalCourses,
   wishlistIds,
   slotMemberships,
+  slotNames,
   onToggleWishlist,
   onAddToSlot,
   onLiberalRequested,
@@ -238,9 +241,9 @@ export function BrowseCourses({
                                         : "hover:bg-muted"
                                     }`}
                                     style={inSlot ? {} : { color: "#B0232A" }}
-                                    title={inSlot ? "이미 담김" : `${SLOT_SHORT_LABELS[s]} 에 추가`}
+                                    title={inSlot ? "이미 담김" : `${displaySlotName(s, slotNames?.[s])} 에 추가`}
                                   >
-                                    <span>{SLOT_SHORT_LABELS[s]}</span>
+                                    <span>{displaySlotName(s, slotNames?.[s])}</span>
                                     {inSlot ? (
                                       <span className="text-[9px]">담김</span>
                                     ) : (
