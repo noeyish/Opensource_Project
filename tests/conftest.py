@@ -25,7 +25,12 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 @pytest.fixture(scope="function", autouse=True)
 def setup_db():
-    """각 테스트마다 테이블 생성 → 실행 → 삭제"""
+    """각 테스트마다 테이블 생성 → 실행 → 삭제.
+
+    app.main 임포트 시 모듈 레벨 시드(seed_special_courses) 가 SQLite 에 들어가므로,
+    매 테스트 시작 전에도 drop_all 로 잔여 데이터를 청소한다.
+    """
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)

@@ -364,6 +364,8 @@ def _run_evaluation_job(
 
         evaluation.status = "completed"
         evaluation.alignment_score = result.get("alignment_score")
+        evaluation.rubric = result.get("rubric") or {}
+        evaluation.section_scores = result.get("section_scores") or {}
         evaluation.summary = result.get("summary")
         evaluation.strengths = json.dumps(result.get("strengths", []), ensure_ascii=False)
         evaluation.weaknesses = json.dumps(result.get("weaknesses", []), ensure_ascii=False)
@@ -390,6 +392,8 @@ def _evaluation_to_response(e: PortfolioEvaluation) -> PortfolioEvaluationRespon
         status=e.status,
         error_message=json.dumps(error_payload, ensure_ascii=False) if error_payload else None,
         alignment_score=e.alignment_score,
+        rubric=_safe_score_dict(e.rubric),
+        section_scores=_safe_score_dict(e.section_scores),
         summary=e.summary,
         strengths=_safe_json_list(e.strengths),
         weaknesses=_safe_json_list(e.weaknesses),
@@ -399,6 +403,19 @@ def _evaluation_to_response(e: PortfolioEvaluation) -> PortfolioEvaluationRespon
         created_at=e.created_at,
         completed_at=e.completed_at,
     )
+
+
+def _safe_score_dict(v) -> dict[str, int]:
+    """JSON 컬럼에서 읽은 값을 {str: int} 로 정규화. NULL/형식이상은 빈 dict."""
+    if not isinstance(v, dict):
+        return {}
+    out: dict[str, int] = {}
+    for k, val in v.items():
+        try:
+            out[str(k)] = int(val)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _safe_json_list(s: Optional[str]) -> list[str]:

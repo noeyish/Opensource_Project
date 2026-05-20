@@ -602,7 +602,12 @@ export interface PortfolioEvaluation {
   id: number
   status: EvaluationStatus
   error_message: string | null
+  // 0~6 정수 — UI 에서 /2 해서 0~3 별점(0.5 단위) 표시.
   alignment_score: number | null
+  // 4 차원 별점 — { skill_fit, depth, concreteness, breadth } 각 0~6.
+  rubric: Record<string, number>
+  // 5 섹션 별점 — { campus_activity, external_activity, ... } 각 0~6.
+  section_scores: Record<string, number>
   summary: string | null
   strengths: string[]
   weaknesses: string[]

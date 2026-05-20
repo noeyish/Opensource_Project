@@ -58,6 +58,9 @@ GEMINI_URL_TEMPLATE = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
 MAX_503_RETRIES = 1  # 같은 모델로 재시도 횟수 (그 후 폴백 모델로 전환)
+# Google Search grounding — 자격증·수상내역 등 실재 여부 검증을 위해 기본 ON.
+# 응답 시간 2~5초 가산되며 responseMimeType 강제와 비호환이라 JSON 추출은 _extract_json 에 의존.
+ENABLE_SEARCH_GROUNDING = os.getenv("ENABLE_SEARCH_GROUNDING", "true").lower() in ("true", "1", "yes")
 
 
 KIND_LABELS_KO = {
@@ -73,27 +76,83 @@ SYSTEM_PROMPT = """당신은 IT/컴퓨터공학 전공 대학생의 포트폴리
 사용자의 관심분야와 목표 직무를 기준으로 포트폴리오를 평가하고, 다음 JSON 스키마로만 응답하세요.
 JSON 외의 다른 텍스트나 마크다운 코드블록은 절대 포함하지 마세요.
 
+모든 점수는 0~6 정수입니다. UI 에서 /2 해서 0~3 별점(0.5 단위) 으로 보여집니다.
+
 {
-  "alignment_score": 0~100 정수 (목표 직무와의 정합성 점수),
+  "rubric": {
+    "skill_fit":     0~6 정수,   // 기술 적합도 — 보유 기술/경험이 목표 직무 요구사항과 얼마나 부합
+    "depth":         0~6 정수,   // 경험 깊이 — 단순 참여 vs 주도/장기간 vs 결과 산출
+    "concreteness":  0~6 정수,   // 구체성 — 정량 지표·결과·임팩트가 명시되어 있는지
+    "breadth":       0~6 정수    // 다양성 — 활동 유형 분포 (단일 분야 vs 균형)
+  },
+  "alignment_score": 0~6 정수 (위 4 개 차원 평균을 반올림),
+  "section_scores": {
+    "campus_activity":   0~6 정수,
+    "external_activity": 0~6 정수,
+    "certificate":       0~6 정수,
+    "award":             0~6 정수,
+    "project":           0~6 정수
+  },
   "summary": "전반적 평가 한 단락 (3-4문장, 한국어)",
-  "strengths": ["강점 1", "강점 2", ...] (3~5개, 구체적으로),
-  "weaknesses": ["부족한 점 1", "부족한 점 2", ...] (2~4개, 구체적으로),
-  "suggestions": ["다음 단계 제안 1", "제안 2", ...] (3~5개, 실행 가능한 액션),
+  "strengths":  ["강점 1", ...] (3~5개, 구체적으로),
+  "weaknesses": ["부족한 점 1", ...] (2~4개, 구체적으로),
+  "suggestions":["다음 단계 제안 1", ...] (3~5개, 실행 가능한 액션),
   "by_section": {
-    "campus_activity": "교내활동 섹션 코멘트 (1-2문장)",
+    "campus_activity":   "교내활동 섹션 코멘트 (1-2문장)",
     "external_activity": "교외활동 섹션 코멘트",
-    "certificate": "자격증 섹션 코멘트",
-    "award": "수상내역 섹션 코멘트",
-    "project": "프로젝트 섹션 코멘트"
+    "certificate":       "자격증 섹션 코멘트",
+    "award":             "수상내역 섹션 코멘트",
+    "project":           "프로젝트 섹션 코멘트"
   }
 }
 
+별점 산정 기준 (앵커):
+
+[skill_fit — 기술 적합도]
+- 0 (★0)    : 목표 직무와 관련된 활동·기술이 전혀 없음
+- 1~2 (★1)  : 입문 수준만 보임 (수업 따라가는 정도)
+- 3~4 (★1.5~2): 직무 핵심 기술 중 일부에서 실전 경험
+- 5~6 (★2.5~3): 직무 핵심 기술 대부분에 실전 경험 + 추가 심화
+
+[depth — 경험 깊이]
+- 0 (★0)    : 활동 없음
+- 1~2 (★1)  : 단발성 참여, 짧은 기간
+- 3~4 (★2)  : 학기/분기 단위 지속, 본인 역할 명확
+- 5~6 (★3)  : 장기간 주도, 책임자/리더 역할, 결과물 산출
+
+[concreteness — 구체성]
+- 0 (★0)    : 활동명만 있고 내용 없음
+- 1~2 (★1)  : 무엇을 했는지만 (수치·결과 없음)
+- 3~4 (★2)  : 일부 정량 지표 (예: "사용자 100명")
+- 5~6 (★3)  : 명확한 정량 지표 + 임팩트 (전/후 비교, 비즈니스 영향)
+
+[breadth — 다양성]
+- 0 (★0)    : 모든 섹션 비어있음
+- 1~2 (★1)  : 1~2 개 섹션에만 집중
+- 3~4 (★2)  : 3~4 개 섹션 균형
+- 5~6 (★3)  : 5 개 섹션 모두에 의미있는 기록
+
+[section_scores — 섹션별 별점]
+- 0 (★0)    : 기록 없음
+- 1~2 (★1)  : 있긴 한데 직무 무관 또는 빈약
+- 3~4 (★2)  : 직무 관련 + 구체적이나 임팩트 약함
+- 5~6 (★3)  : 직무 관련 + 구체적 임팩트 또는 권위 있는 결과
+
 평가 원칙:
-- 사용자의 목표 직무와 관심분야에 비추어 각 항목이 얼마나 도움 되는지 판단
-- 비어있는 섹션은 "기록이 없음 — 어떤 경험을 추가하면 좋을지" 형태로 권유
+- alignment_score 는 rubric 4 차원의 평균을 반올림한 값과 일치해야 함
+- strengths/weaknesses 는 위 차원·섹션 중 어디서 점수가 높/낮은지에 직접 근거를 두어 작성
 - 막연한 칭찬 금지. 구체적 근거(어떤 자격증/프로젝트가 어떤 직무에 왜 도움이 되는지) 포함
+- 비어있는 섹션은 "기록이 없음 — 어떤 경험을 추가하면 좋을지" 형태로 권유
 - 빈약한 포트폴리오라면 그 사실을 솔직히 알리되, 격려와 다음 단계 제안 포함
-- 모든 텍스트는 한국어로 작성하고, 별표(**)나 마크다운 같은 장식 문법은 사용하지 마세요"""
+- 모든 텍스트는 한국어로 작성하고, 별표(**)나 마크다운 같은 장식 문법은 사용하지 마세요
+
+실재 검증 (중요):
+- 도구로 제공되는 Google Search 를 적극 활용해 자격증·수상내역·외부활동·기관명이 실제로 존재하는지 검증하세요.
+- 검색해도 확인되지 않거나, 명칭이 명백히 사실과 다른 항목은 "확인되지 않음" 으로 간주하고 다음을 실행하세요:
+  1) `weaknesses` 에 해당 항목명을 명시하며 "공식 출처에서 확인되지 않음 — 명칭을 다시 확인해 주세요" 라고 적기
+  2) 해당 섹션의 `section_scores` 점수를 낮추기 (확인 안 된 항목은 점수 산정에서 제외)
+  3) 모르는 자격증·수상을 아는 척하지 말 것. 그럴듯한 이름이라도 검색으로 확인되지 않으면 신뢰하지 마세요.
+- 반대로 검색으로 실재가 확인된 항목은 `strengths` 또는 `by_section` 코멘트에서 "공식 자격증/대회임을 확인" 이라고 간단히 명시해도 좋습니다."""
 
 
 def _build_user_prompt(
@@ -160,22 +219,46 @@ def evaluate_portfolio(
 
     user_prompt = _build_user_prompt(interests, target_careers, sections)
 
-    payload = {
-        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "generationConfig": {
-            "temperature": 0.4,
-            "responseMimeType": "application/json",
-        },
-    }
+    def _build_payload(use_grounding: bool) -> dict:
+        # Search grounding 과 responseMimeType=application/json 은 동시 사용 불가.
+        cfg: dict = {"temperature": 0.4}
+        if not use_grounding:
+            cfg["responseMimeType"] = "application/json"
+        p: dict = {
+            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "generationConfig": cfg,
+        }
+        if use_grounding:
+            # Gemini v1beta REST 는 camelCase. 자격증·수상 실재 여부 검증용.
+            p["tools"] = [{"googleSearch": {}}]
+        return p
 
-    resp, used_model = _call_gemini_with_fallback(payload)
+    def _extract_parts_text(d: dict) -> str:
+        # Grounding 활성 시 응답이 multi-part — parts 전체 순회.
+        try:
+            parts = d["candidates"][0]["content"]["parts"]
+        except (KeyError, IndexError, TypeError):
+            return ""
+        if not isinstance(parts, list):
+            return ""
+        return "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+
+    use_grounding = ENABLE_SEARCH_GROUNDING
+    resp, used_model = _call_gemini_with_fallback(_build_payload(use_grounding))
     data = resp.json()
+    text = _extract_parts_text(data)
 
-    try:
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        logger.error("Gemini 응답 형식이 예상과 다름: %s", data)
+    # Grounding 켰는데 빈 응답이 오는 알려진 케이스 — grounding 끄고 한 번 더.
+    if not text and use_grounding:
+        logger.warning("Grounding 응답이 비어 grounding 없이 재시도")
+        use_grounding = False
+        resp, used_model = _call_gemini_with_fallback(_build_payload(False))
+        data = resp.json()
+        text = _extract_parts_text(data)
+
+    if not text:
+        logger.error("Gemini 응답에 text 가 없음: %s", data)
         # finishReason이 SAFETY 등으로 응답이 비어있을 수 있음
         finish_reason = (
             data.get("candidates", [{}])[0].get("finishReason") if data.get("candidates") else None
@@ -208,8 +291,19 @@ def evaluate_portfolio(
             http_status=502,
         )
 
+    rubric = _coerce_score_dict(result.get("rubric"), RUBRIC_KEYS)
+    section_scores = _coerce_score_dict(result.get("section_scores"), SECTION_KEYS)
+    alignment_score = _coerce_score(result.get("alignment_score"))
+    # 모델이 alignment_score 를 빼먹거나 rubric 평균과 크게 어긋나면 rubric 평균으로 보정.
+    if rubric:
+        derived = round(sum(rubric.values()) / len(rubric))
+        if alignment_score is None or abs(alignment_score - derived) > 1:
+            alignment_score = derived
+
     return {
-        "alignment_score": _coerce_int(result.get("alignment_score")),
+        "alignment_score": alignment_score,
+        "rubric": rubric,
+        "section_scores": section_scores,
         "summary": result.get("summary"),
         "strengths": _coerce_str_list(result.get("strengths")),
         "weaknesses": _coerce_str_list(result.get("weaknesses")),
@@ -407,6 +501,35 @@ def _coerce_int(v) -> Optional[int]:
         return int(v) if v is not None else None
     except (TypeError, ValueError):
         return None
+
+
+# 별점 스케일 — 0~6 정수로 클램프.
+SCORE_MIN = 0
+SCORE_MAX = 6
+RUBRIC_KEYS = ("skill_fit", "depth", "concreteness", "breadth")
+SECTION_KEYS = ("campus_activity", "external_activity", "certificate", "award", "project")
+
+
+def _coerce_score(v) -> Optional[int]:
+    """0~6 정수로 클램프. 0.5 같은 소수가 와도 반올림. 음수/None/문자열은 None."""
+    if v is None:
+        return None
+    try:
+        n = round(float(v))
+    except (TypeError, ValueError):
+        return None
+    return max(SCORE_MIN, min(SCORE_MAX, n))
+
+
+def _coerce_score_dict(v, allowed_keys: tuple[str, ...]) -> dict[str, int]:
+    """allowed_keys 만 추려 0~6 정수로 정규화. 누락 키는 0 으로 채움."""
+    if not isinstance(v, dict):
+        return {k: 0 for k in allowed_keys}
+    out: dict[str, int] = {}
+    for k in allowed_keys:
+        s = _coerce_score(v.get(k))
+        out[k] = s if s is not None else 0
+    return out
 
 
 def _coerce_str_list(v) -> list[str]:
