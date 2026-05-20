@@ -31,8 +31,9 @@ COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 #   wheel 0.45.1 (CVE-2026-24049 — path traversal → privilege escalation)
 #   setuptools 79.0.1 (path traversal via wheel vendoring)
 # 모두 패키지 설치 단계에서 영향을 주므로 requirements 설치 전에 갱신.
+# 버전 핀 박음 (hadolint DL3013) — 재현성 + 미래의 새 CVE 자동 회귀 방지.
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip wheel setuptools \
+RUN pip install --no-cache-dir --upgrade pip==26.1.1 wheel==0.47.0 setuptools==82.0.1 \
     && pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
 
 # 애플리케이션 코드 및 데이터 복사
