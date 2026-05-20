@@ -36,10 +36,26 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip==26.1.1 wheel==0.47.0 setuptools==82.0.1 \
     && pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
 
-# 애플리케이션 코드 및 데이터 복사
-COPY ./app ./app
-COPY ./static ./static
-COPY ./data ./data
+# Non-root 사용자 생성 — Trivy DS-002 (root 권한 회피).
+# prod backend 는 docker.sock 미마운트라 root 권한 필요 없음 (docker-compose.yml 주석 참조).
+# UID/GID 10001 — 호스트 일반 사용자(보통 1000번대) 와 겹치지 않게 고른 값.
+ARG APP_UID=10001
+RUN groupadd --system --gid ${APP_UID} appuser \
+    && useradd --system --uid ${APP_UID} --gid ${APP_UID} --no-create-home --shell /usr/sbin/nologin appuser
+
+# 애플리케이션 코드 및 데이터 복사 — appuser 소유로.
+# data 는 docker-compose 의 ./data:/app/data 볼륨 마운트로 런타임에 host 측이 덮어쓰지만,
+# 빌드 시점에 chown 해두면 init 시 그 안에서 만들어지는 파일도 appuser 소유.
+COPY --chown=appuser:appuser ./app ./app
+COPY --chown=appuser:appuser ./static ./static
+COPY --chown=appuser:appuser ./data ./data
+
+USER appuser
+
+# HEALTHCHECK — Trivy DS-026. docker-compose 의 healthcheck 가 빌드된 이미지엔 안 들어가서
+# Dockerfile 에 별도 선언. docker run 단독 시도 헬스 추적되고 Trivy 룰도 만족.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/', timeout=5).status < 500 else 1)" || exit 1
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

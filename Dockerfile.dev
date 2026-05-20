@@ -27,5 +27,15 @@ COPY ./app ./app
 COPY ./static ./static
 COPY ./data ./data
 
+# ── dev 는 root 유지 ──
+# 이유: (1) docker.sock 마운트 — admin_assistant 의 docker 도구가 호스트 docker 호출 가능해야 함
+#      (2) 호스트 볼륨 마운트 (.:/app) — 호스트 소유 파일에 컨테이너가 쓰기 가능해야 핫리로드 정상 동작
+# prod (Dockerfile) 는 docker.sock 미마운트라 non-root 적용됨. 일관성 vs 실용성에서 후자 선택.
+# hadolint ignore=DL3002
+
+# HEALTHCHECK — docker-compose 도 healthcheck 정의하지만 Dockerfile 에 두면 Trivy DS-026 만족.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/', timeout=5).status < 500 else 1)" || exit 1
+
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
