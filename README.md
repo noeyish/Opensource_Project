@@ -26,13 +26,13 @@
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │  [Next.js 16 Frontend :3000]                                  │
-│        ↓ REST API                                              │
+│        ↓ REST API                                             │
 │  [FastAPI Backend :8080] ──→ /metrics ──→ Prometheus :9090    │
 │        ├─ stdout         ──→ Promtail  ──→ Loki :3100         │
-│        ↓                                       ↓               │
+│        ↓                                       ↓              │
 │  [PostgreSQL 15] [Redis 7] [OCR Service :8001]                │
-│                                ↓                               │
-│                       Mistral Pixtral API                      │
+│                                ↓                              │
+│                       Mistral Pixtral API                     │
 └───────────────────────────────────────────────────────────────┘
                                                 ↓
                                     [Grafana :3001 KPI 5종]
