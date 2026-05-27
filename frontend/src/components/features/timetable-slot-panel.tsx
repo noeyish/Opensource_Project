@@ -1,45 +1,23 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { toast } from "sonner"
-import { Calendar, Columns3, Loader2, Pin, PinOff } from "lucide-react"
+import { Calendar, Check, Columns3, Loader2, Pencil, Pin, PinOff, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { TimetableGrid } from "@/components/features/timetable-grid"
 import { CompareModal } from "@/components/features/compare-modal"
-import { timetablesApi, type SlotChar, type Timetable, SLOT_LABELS } from "@/lib/api"
+import {
+    timetablesApi,
+    type SlotChar,
+    type Timetable,
+    SLOT_LABELS,
+    displaySlotName,
+} from "@/lib/api"
 import type { Course as ApiCourse } from "@/types"
 import type { Course } from "@/lib/constants/course-data"
 
 const SLOTS: SlotChar[] = ["A", "B", "C", "D"]
 const PINNED_SLOT_KEY = "timetable_pinned_slot"
-
-// 슬롯 고정/해제 시 보여줄 슬롯별 문구 (재미용)
-const PIN_MESSAGES: Record<SlotChar, string> = {
-    A: "퀸민디가 좋아서 춤을 춥니다.",
-    B: "마여니가 웃다가 넘어집니다.",
-    C: "힝우행우가 당신께 랩을 바칩니다.",
-    D: "유화니가 뭐 먹고 싶은지 물어봅니다.",
-}
-
-const UNPIN_MESSAGES: Record<SlotChar, string> = {
-    A: "퀸민디는 사실 몸치였습니다.",
-    B: "마여니는 굴러서 당신을 피해 달아납니다.",
-    C: "힝우행우가 부른 랩은 실은 디스랩이었습니다.",
-    D: "유화니가 배민 주문을 다시 취소합니다.",
-}
-
-// 서간표 컬러 (#B0232A) 그라데이션 — 슬롯 고정/해제 toast 전용 스타일.
-// 흰 배경에서 잘 안 보이던 문제 해결 + 브랜드 컬러 일관성.
-const SLOT_TOAST_STYLE: React.CSSProperties = {
-    background: "linear-gradient(135deg, #B0232A 0%, #8A1820 100%)",
-    color: "#FFFFFF",
-    border: "none",
-    fontSize: "14px",
-    fontWeight: 600,
-    padding: "16px 20px",
-    boxShadow: "0 10px 30px rgba(176, 35, 42, 0.35)",
-}
 
 interface TimetableSlotPanelProps {
     /** 부모(dashboard)가 fetch 한 4 슬롯 데이터 (없으면 빈 배열) */
@@ -51,10 +29,10 @@ interface TimetableSlotPanelProps {
 }
 
 /**
- * 4 슬롯 시간표 패널 — 핀(고정) / 시간표 비교 모달 트리거.
+ * 4 슬롯 시간표 패널 — 핀(고정), 슬롯 이름 수정, 시간표 비교 모달 트리거.
  *
  * 고정 슬롯은 localStorage 에 저장되어 페이지 재진입 시 자동 활성화.
- * 슬롯 본문은 시간표 그리드 한 개만 (강의 리스트·추가 UI 는 BrowseCourses 쪽으로 분리).
+ * 슬롯 본문은 시간표 그리드 한 개만 (강의 리스트·추가 UI 는 BrowseCourses/Wishlist 쪽).
  */
 export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: TimetableSlotPanelProps) {
     const queryClient = useQueryClient()
@@ -62,16 +40,20 @@ export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: Time
     const [pinnedSlot, setPinnedSlot] = useState<SlotChar | null>(null)
     const [compareOpen, setCompareOpen] = useState(false)
 
+    // 이름 수정 모드 — null 이면 비활성, SlotChar 면 해당 슬롯 입력 표시.
+    const [editingSlot, setEditingSlot] = useState<SlotChar | null>(null)
+    const [editValue, setEditValue] = useState("")
+    const editInputRef = useRef<HTMLInputElement>(null)
+
     // 시간표 블록 클릭 → ✕ 클릭 시 해당 슬롯에서 강의 제거
     const removeFromActiveSlot = async (courseId: string) => {
         try {
             await timetablesApi.removeCourse(activeSlot, Number(courseId))
-            // 캐시 무효화 → dashboard 의 useQuery 가 자동 refetch
             queryClient.invalidateQueries({ queryKey: ["timetables"] })
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e)
             console.error(`removeFromActiveSlot(${activeSlot}, ${courseId}) 실패:`, e)
-            alert(`${SLOT_LABELS[activeSlot]} 에서 제거 실패\n${msg}`)
+            alert(`${displaySlotName(activeSlot, activeTimetableName)} 슬롯에서 제거 실패\n${msg}`)
         }
     }
 
@@ -85,16 +67,21 @@ export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: Time
         }
     }, [])
 
+    // 편집 모드 진입 시 input 포커스 & 전체 선택
+    useEffect(() => {
+        if (editingSlot && editInputRef.current) {
+            editInputRef.current.focus()
+            editInputRef.current.select()
+        }
+    }, [editingSlot])
+
     const togglePin = () => {
         if (pinnedSlot === activeSlot) {
-            // 이미 이 슬롯이 고정됨 → 해제
             setPinnedSlot(null)
             window.localStorage.removeItem(PINNED_SLOT_KEY)
-            toast(UNPIN_MESSAGES[activeSlot], { style: SLOT_TOAST_STYLE })
         } else {
             setPinnedSlot(activeSlot)
             window.localStorage.setItem(PINNED_SLOT_KEY, activeSlot)
-            toast(PIN_MESSAGES[activeSlot], { style: SLOT_TOAST_STYLE })
         }
     }
 
@@ -102,6 +89,7 @@ export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: Time
         () => timetables.find((t) => t.slot === activeSlot) ?? null,
         [timetables, activeSlot],
     )
+    const activeTimetableName = activeTimetable?.name ?? null
 
     const slotCourses = useMemo<Course[]>(() => {
         if (!activeTimetable) return []
@@ -116,11 +104,50 @@ export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: Time
         return m
     }, [timetables])
 
+    const slotNameMap = useMemo(() => {
+        const m: Record<SlotChar, string | null> = { A: null, B: null, C: null, D: null }
+        for (const t of timetables) m[t.slot] = t.name
+        return m
+    }, [timetables])
+
     const isPinned = pinnedSlot === activeSlot
+
+    const startEdit = (slot: SlotChar) => {
+        setEditingSlot(slot)
+        setEditValue(slotNameMap[slot] ?? "")
+    }
+    const cancelEdit = () => {
+        setEditingSlot(null)
+        setEditValue("")
+    }
+    const saveEdit = async () => {
+        if (!editingSlot) return
+        const next = editValue.trim()
+        // 비우면 기본 라벨(A/B/C/D) 로 돌아가게 — 빈 문자열을 그대로 PATCH 한다.
+        try {
+            await timetablesApi.rename(editingSlot, next)
+            queryClient.invalidateQueries({ queryKey: ["timetables"] })
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            console.error(`rename(${editingSlot}) 실패:`, e)
+            alert(`이름 변경 실패\n${msg}`)
+            return
+        }
+        cancelEdit()
+    }
+    const onEditKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter") {
+            e.preventDefault()
+            saveEdit()
+        } else if (e.key === "Escape") {
+            e.preventDefault()
+            cancelEdit()
+        }
+    }
 
     return (
         <section className="rounded-lg border border-border bg-card p-5">
-            {/* 헤더 — 다른 섹션과 동일한 패턴 (아이콘 + 제목 + 부제 + 액션) */}
+            {/* 헤더 */}
             <div className="mb-4 flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
                     <Calendar className="h-4 w-4 flex-shrink-0" style={{ color: "#B0232A" }} />
@@ -143,12 +170,13 @@ export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: Time
                 </Button>
             </div>
 
-            {/* 슬롯 탭 + 고정 버튼 */}
+            {/* 슬롯 탭 + 고정/이름수정 버튼 */}
             <div className="mb-4 flex items-center gap-2 flex-wrap">
                 <div className="inline-flex rounded-md border border-border overflow-hidden">
                     {SLOTS.map((s) => {
                         const pinned = pinnedSlot === s
                         const active = activeSlot === s
+                        const label = displaySlotName(s, slotNameMap[s])
                         return (
                             <button
                                 key={s}
@@ -159,9 +187,9 @@ export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: Time
                                         : "text-muted-foreground hover:bg-muted"
                                 }`}
                                 style={active ? { backgroundColor: "#B0232A" } : {}}
-                                title={pinned ? `${SLOT_LABELS[s]} 슬롯은 고정됨` : ""}
+                                title={pinned ? `${label} 슬롯은 고정됨` : label}
                             >
-                                <span className="font-semibold">{SLOT_LABELS[s]}</span>
+                                <span className="font-semibold">{label}</span>
                                 {pinned && <Pin className="h-3 w-3" />}
                                 <span className="text-[10px] opacity-75">
                                     ({slotCountMap[s]})
@@ -170,12 +198,26 @@ export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: Time
                         )
                     })}
                 </div>
+                {/* 이름 수정 — 활성 슬롯이 편집 중이 아닐 때만 노출 */}
+                {editingSlot !== activeSlot && (
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => startEdit(activeSlot)}
+                        className="h-8 gap-1.5 text-xs"
+                        title={`${displaySlotName(activeSlot, slotNameMap[activeSlot])} 이름 변경`}
+                    >
+                        <Pencil className="h-3 w-3" />
+                        <span className="hidden sm:inline">이름 수정</span>
+                        <span className="sm:hidden">이름</span>
+                    </Button>
+                )}
                 <Button
                     size="sm"
                     variant="outline"
                     onClick={togglePin}
                     className="h-8 gap-1.5 text-xs"
-                    title={isPinned ? `${SLOT_LABELS[activeSlot]} 고정 해제` : `${SLOT_LABELS[activeSlot]} 고정 (다음 방문 시 자동 선택)`}
+                    title={isPinned ? "고정 해제" : "이 슬롯 고정 (다음 방문 시 자동 선택)"}
                 >
                     {isPinned ? (
                         <>
@@ -193,6 +235,42 @@ export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: Time
                 </Button>
             </div>
 
+            {/* 이름 수정 인풋 — 활성 슬롯만 편집 (탭 줄 바로 아래로 펼침) */}
+            {editingSlot === activeSlot && (
+                <div className="mb-3 flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                    <span className="text-[11px] text-muted-foreground flex-shrink-0">
+                        {SLOT_LABELS[activeSlot]} 슬롯 이름
+                    </span>
+                    <input
+                        ref={editInputRef}
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={onEditKey}
+                        maxLength={20}
+                        placeholder={`기본값: ${SLOT_LABELS[activeSlot]}`}
+                        className="flex-1 min-w-0 h-7 px-2 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-[#B0232A]/30 focus:border-[#B0232A]"
+                    />
+                    <Button
+                        size="sm"
+                        onClick={saveEdit}
+                        className="h-7 px-2 text-xs gap-1"
+                        style={{ backgroundColor: "#B0232A" }}
+                    >
+                        <Check className="h-3 w-3" />
+                        저장
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={cancelEdit}
+                        className="h-7 px-2 text-xs gap-1"
+                    >
+                        <X className="h-3 w-3" />
+                        취소
+                    </Button>
+                </div>
+            )}
+
             {/* 활성 슬롯 시간표 그리드 — 블록 클릭 시 ✕ 제거 버튼 노출 */}
             {isLoading ? (
                 <div className="rounded-md border border-dashed border-border bg-muted/30 px-6 py-16 text-center">
@@ -203,12 +281,10 @@ export function TimetableSlotPanel({ timetables, isLoading, mapApiCourse }: Time
                 <TimetableGrid courses={slotCourses} onRemoveCourse={removeFromActiveSlot} />
             )}
 
-            {/* 슬롯 안내 */}
             <p className="mt-3 text-[11px] text-muted-foreground/70">
-                ※ 시간표의 강의를 누르면 제거 버튼이 나옵니다.
+                ※ 시간표의 강의를 누르면 제거 버튼이 나옵니다. 이름 수정은 기본값(A/B/C/D) 으로 비울 수 있습니다.
             </p>
 
-            {/* 비교 모달 */}
             <CompareModal
                 open={compareOpen}
                 onClose={() => setCompareOpen(false)}

@@ -8,5 +8,14 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install
 
+# ── dev 는 root 유지 ──
+# 이유: 호스트 볼륨 마운트 (./frontend:/app) — 호스트 소유 파일에 컨테이너가 .next 캐시·HMR 산출물
+# 등을 쓸 수 있어야 정상 동작. prod (Dockerfile) 는 USER node 로 non-root 적용.
+# hadolint ignore=DL3002
+
+# HEALTHCHECK — Trivy DS-026. Alpine 내장 BusyBox wget 사용.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget -qO- http://localhost:3000 || exit 1
+
 EXPOSE 3000
 CMD ["pnpm", "dev"]

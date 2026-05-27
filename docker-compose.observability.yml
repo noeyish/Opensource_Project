@@ -84,9 +84,31 @@ services:
                 condition: service_healthy
             prometheus:
                 condition: service_healthy
+            influxdb:
+                condition: service_healthy
+
+    # JMeter 결과 저장소 (로컬 dev — 데이터소스 미러링용)
+    influxdb:
+        image: influxdb:1.8
+        container_name: seoganpyo-influxdb
+        restart: unless-stopped
+        ports:
+            - "127.0.0.1:8086:8086"
+        environment:
+            - INFLUXDB_DB=jmeter
+            - INFLUXDB_HTTP_AUTH_ENABLED=false
+            - INFLUXDB_REPORTING_DISABLED=true
+        volumes:
+            - influxdb_data:/var/lib/influxdb
+        healthcheck:
+            test: ["CMD-SHELL", "wget -q --spider http://localhost:8086/ping || exit 1"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
 
 volumes:
     loki_data:
     grafana_data:
     promtail_positions:
     prometheus_data:
+    influxdb_data:

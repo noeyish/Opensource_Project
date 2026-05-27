@@ -138,6 +138,13 @@ export default function DashboardPage() {
     [cartItems],
   )
 
+  // 슬롯별 사용자 별명 — WishlistCard / 추후 표시용에서 사용.
+  const slotNames = useMemo<Record<SlotChar, string | null>>(() => {
+    const m: Record<SlotChar, string | null> = { A: null, B: null, C: null, D: null }
+    for (const t of timetables) m[t.slot] = t.name
+    return m
+  }, [timetables])
+
   // courseId → 들어있는 슬롯 목록. BrowseCourses 슬롯 버튼 disable 표시용.
   const slotMemberships = useMemo<Record<string, SlotChar[]>>(() => {
     const m: Record<string, SlotChar[]> = {}
@@ -242,6 +249,9 @@ export default function DashboardPage() {
               key={course.id}
               course={course}
               onRemove={removeFromWishlist}
+              slotNames={slotNames}
+              inSlots={slotMemberships[course.id] ?? []}
+              onAddToSlot={addToSlot}
             />
           ))}
         </div>
@@ -444,6 +454,7 @@ export default function DashboardPage() {
             liberalCourses={liberalCourses}
             wishlistIds={wishlistIds}
             slotMemberships={slotMemberships}
+            slotNames={slotNames}
             onToggleWishlist={toggleWishlist}
             onAddToSlot={addToSlot}
             onLiberalRequested={fetchLiberalIfNeeded}

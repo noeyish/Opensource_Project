@@ -5,17 +5,33 @@ import { getCurrentSemester } from "@/lib/utils"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
-  ArrowLeft, GraduationCap, CheckCircle2, BookOpen, Clock,
+  ArrowLeft, BookOpen, Clock,
   Loader2, Plus, Pencil, Trash2, X, Search, RotateCcw, ArrowUpDown,
-  CalendarPlus,
+  CalendarPlus, MoreHorizontal, Check,
 } from "lucide-react"
 import { ThemeToggle } from "@/components/layout/theme-toggle"
-import { historyApi, coursesApi } from "@/lib/api"
+import { historyApi, coursesApi, usersApi } from "@/lib/api"
 import { isMajorCourse } from "@/lib/constants/course-data"
-import type { HistoryItem, Course } from "@/types"
+import type { HistoryItem, Course, User } from "@/types"
 
 const OCR_PENDING_KEY = "ocrPending"
 const OCR_TIMEOUT_MS = 5 * 60 * 1000
+
+// 학번별 졸업 요건 (전공·총 이수 학점).
+// 현재 모든 학번이 22학번 기준(전공 72 / 총 130)을 사용 — 다른 학번 요건이 확정되는 대로
+// GRAD_REQUIREMENTS 에 학번 → { major, total } 한 줄씩 추가하면 그 학번만 덮어쓰기됨.
+type GradRequirement = { major: number; total: number }
+const DEFAULT_REQUIREMENT: GradRequirement = { major: 72, total: 130 }
+const GRAD_REQUIREMENTS: Record<number, GradRequirement> = {
+  // 22: { major: 72, total: 130 },  // 22학번 — 현재 DEFAULT 와 동일해서 명시 생략
+}
+
+// student_id (예: 20221234) → 학번 두 자리 (22) → 졸업요건.
+function getRequirement(studentId: number | undefined): GradRequirement {
+  if (!studentId) return DEFAULT_REQUIREMENT
+  const yearTwoDigit = Math.floor(studentId / 10000) % 100
+  return GRAD_REQUIREMENTS[yearTwoDigit] ?? DEFAULT_REQUIREMENT
+}
 
 type SemesterGroup = {
   year: number | null
@@ -32,6 +48,32 @@ type ModalState = {
 }
 
 const SEASONAL_YEARS = Array.from({ length: 7 }, (_, i) => 2020 + i)
+
+// '기타' 모달 — 특수 과목 (수시·군이러닝).
+// 백엔드 app/services/special_courses_service.py 의 SPECIAL_COURSES 와 동기 유지.
+type EtcCourse = {
+  code: string
+  name: string
+  semesters: (3 | 4)[]  // 3=하계, 4=동계 — 백엔드 시드된 학기만 선택 가능
+}
+const ETC_COURSES: EtcCourse[] = [
+  { code: "ABC0001", name: "기초인공지능프로그래밍(수시)", semesters: [4] },
+  { code: "ABC0002", name: "군이러닝취득교과목I", semesters: [3, 4] },
+  { code: "ABC0003", name: "군이러닝취득교과목II", semesters: [3, 4] },
+  { code: "ABC0004", name: "군이러닝취득교과목III", semesters: [3, 4] },
+]
+
+// 동치 그룹 — 백엔드 COURSE_EQUIV_GROUPS 와 동기 유지.
+// 학점 합산·중복 제거 시 같은 그룹의 코드들을 한 키로 묶는다.
+const COURSE_EQUIV_GROUPS: string[][] = [
+  ["ABC0001", "COR1010"],
+]
+const equivKeyOf = (code: string): string => {
+  for (const group of COURSE_EQUIV_GROUPS) {
+    if (group.includes(code)) return group[0]
+  }
+  return code
+}
 
 const semesterDisplay = (s: number | null): string => {
   if (s === 3) return "하계학기"
@@ -51,6 +93,7 @@ const chronoKey = (year: number | null, semester: number | null) =>
 export default function GraduationPage() {
   const router = useRouter()
   const [histories, setHistories] = useState<HistoryItem[]>([])
+  const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [ocrPending, setOcrPending] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -62,6 +105,13 @@ export default function GraduationPage() {
     year: number
     semester: 3 | 4
   } | null>(null)
+  const [etcPicker, setEtcPicker] = useState<{
+    year: number
+    semester: 3 | 4
+    selected: string[]  // 체크된 ETC_COURSES.code
+  } | null>(null)
+  const [etcSaving, setEtcSaving] = useState(false)
+  const [etcError, setEtcError] = useState<string | null>(null)
   const [modalCourses, setModalCourses] = useState<Course[]>([])
   const [modalSearch, setModalSearch] = useState("")
   const [modalSelected, setModalSelected] = useState<Course | null>(null)
@@ -89,6 +139,9 @@ export default function GraduationPage() {
     }
 
     const raw = localStorage.getItem(OCR_PENDING_KEY)
+
+    // 학번 기반 졸업요건 룩업용으로 유저 정보도 함께 로드.
+    usersApi.me().then(setUser).catch(() => {})
 
     historyApi
       .getMyHistories()
@@ -206,6 +259,39 @@ export default function GraduationPage() {
     }
   }
 
+  // ── 기타 모달 일괄 저장 ────────────────────────────────
+  const handleEtcSave = async () => {
+    if (!etcPicker || etcSaving || etcPicker.selected.length === 0) return
+    setEtcSaving(true)
+    setEtcError(null)
+    try {
+      // 같은 학기·같은 코드는 백엔드가 중복 차단 — 한 건이라도 실패하면 모달 상단에 메시지.
+      const failed: string[] = []
+      for (const code of etcPicker.selected) {
+        try {
+          await historyApi.add({
+            course_code: code,
+            year: etcPicker.year,
+            semester: etcPicker.semester,
+          })
+        } catch (e) {
+          const name = ETC_COURSES.find((c) => c.code === code)?.name ?? code
+          failed.push(name)
+          console.error(`기타 과목 추가 실패: ${code}`, e)
+        }
+      }
+      const fresh = await historyApi.getMyHistories()
+      setHistories(fresh)
+      if (failed.length > 0) {
+        setEtcError(`이미 같은 학기에 등록되어 있습니다: ${failed.join(", ")}`)
+      } else {
+        setEtcPicker(null)
+      }
+    } finally {
+      setEtcSaving(false)
+    }
+  }
+
   // ── 전체 초기화 ───────────────────────────────────────
   const handleResetAll = async () => {
     if (resetting) return
@@ -236,17 +322,17 @@ export default function GraduationPage() {
   // ── 그룹핑 ────────────────────────────────────────────
   const creditOf = (h: HistoryItem) => h.course?.credits ?? 3
 
-  // 재수강은 학점 합산에 추가하지 않는다. 같은 course_code 그룹에서 시간순 가장 최근 row
-  // 한 개만 학점·과목 수에 반영 — 재수강이 들어오면 이전 row 의 학점을 빼고 새 row 의
-  // 학점을 더한 효과 (학점이 동일하면 결과 그대로, 학점이 바뀌었으면 최신 학점 사용).
+  // 재수강은 학점 합산에 추가하지 않는다. 같은 course_code (또는 동치 그룹) 안에서 시간순
+  // 가장 최근 row 한 개만 학점·과목 수에 반영.
   const latestByCode = new Map<string, HistoryItem>()
   for (const h of histories) {
-    const prev = latestByCode.get(h.course_code)
+    const key = equivKeyOf(h.course_code)
+    const prev = latestByCode.get(key)
     if (
       !prev ||
       chronoKey(h.year, h.semester) > chronoKey(prev.year, prev.semester)
     ) {
-      latestByCode.set(h.course_code, h)
+      latestByCode.set(key, h)
     }
   }
   const dedupedHistories = Array.from(latestByCode.values())
@@ -254,12 +340,7 @@ export default function GraduationPage() {
   const majorCredits = dedupedHistories
     .filter((h) => isMajorCourse(h.course_code))
     .reduce((sum, h) => sum + creditOf(h), 0)
-  const liberalCredits = dedupedHistories
-    .filter((h) => !isMajorCourse(h.course_code))
-    .reduce((sum, h) => sum + creditOf(h), 0)
-  const totalCredits = majorCredits + liberalCredits
-  const majorCount = dedupedHistories.filter((h) => isMajorCourse(h.course_code)).length
-  const liberalCount = dedupedHistories.length - majorCount
+  const totalCredits = dedupedHistories.reduce((sum, h) => sum + creditOf(h), 0)
 
   const groupMap = histories.reduce((acc: Record<string, SemesterGroup>, h: HistoryItem) => {
     const key = `${h.year ?? "null"}-${h.semester ?? "null"}`
@@ -316,9 +397,8 @@ export default function GraduationPage() {
       <main className="mx-auto max-w-3xl px-4 sm:px-6 py-8">
         <div className="flex flex-col gap-8">
           <div className="border-l-2 pl-4" style={{ borderColor: "#B0232A" }}>
-            <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <h1 className="text-lg font-semibold text-foreground">
               나의 이수 현황
-              <GraduationCap className="h-5 w-5" style={{ color: "#B0232A" }} />
             </h1>
             <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
               지금까지 이수한 전공·교양 과목과 학점을 확인하세요.
@@ -335,47 +415,60 @@ export default function GraduationPage() {
             </div>
           )}
 
-          {/* Summary Cards */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border border-border bg-card p-5">
-              <div className="flex items-center gap-2 mb-2">
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  총 이수 학점
-                </span>
+          {/* Summary Cards — 학번 기반 졸업요건 대비 진행도 */}
+          {(() => {
+            const req = getRequirement(user?.student_id)
+            const majorPct = Math.min(100, Math.round((majorCredits / req.major) * 100))
+            const totalPct = Math.min(100, Math.round((totalCredits / req.total) * 100))
+            return (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-border bg-card p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      이수 전공 학점
+                    </span>
+                    <span className="text-xs text-muted-foreground">{majorPct}%</span>
+                  </div>
+                  <div className="flex items-baseline gap-1 mb-3">
+                    <p className="text-3xl font-bold text-foreground">{majorCredits}</p>
+                    <p className="text-base text-muted-foreground">
+                      <span className="mx-0.5">/</span>
+                      {req.major}
+                      <span className="ml-1 text-sm">학점</span>
+                    </p>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full transition-all"
+                      style={{ width: `${majorPct}%`, backgroundColor: "#B0232A" }}
+                    />
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      총 이수 학점
+                    </span>
+                    <span className="text-xs text-muted-foreground">{totalPct}%</span>
+                  </div>
+                  <div className="flex items-baseline gap-1 mb-3">
+                    <p className="text-3xl font-bold text-foreground">{totalCredits}</p>
+                    <p className="text-base text-muted-foreground">
+                      <span className="mx-0.5">/</span>
+                      {req.total}
+                      <span className="ml-1 text-sm">학점</span>
+                    </p>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full transition-all"
+                      style={{ width: `${totalPct}%`, backgroundColor: "#B0232A" }}
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="flex items-baseline gap-3 flex-wrap">
-                <p className="text-3xl font-bold text-foreground">
-                  {totalCredits}
-                  <span className="ml-1 text-sm font-normal text-muted-foreground">학점</span>
-                </p>
-                <p className="text-base text-muted-foreground">
-                  전공 <span className="font-semibold text-foreground">{majorCredits}</span>
-                  <span className="mx-1.5">·</span>
-                  교양 <span className="font-semibold text-foreground">{liberalCredits}</span>
-                </p>
-              </div>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-5">
-              <div className="flex items-center gap-2 mb-2">
-                <BookOpen className="h-4 w-4" style={{ color: "#B0232A" }} />
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  이수 과목 수
-                </span>
-              </div>
-              <div className="flex items-baseline gap-3 flex-wrap">
-                <p className="text-3xl font-bold text-foreground">
-                  {dedupedHistories.length}
-                  <span className="ml-1 text-sm font-normal text-muted-foreground">과목</span>
-                </p>
-                <p className="text-base text-muted-foreground">
-                  전공 <span className="font-semibold text-foreground">{majorCount}</span>
-                  <span className="mx-1.5">·</span>
-                  교양 <span className="font-semibold text-foreground">{liberalCount}</span>
-                </p>
-              </div>
-            </div>
-          </div>
+            )
+          })()}
 
           {/* History List */}
           <section>
@@ -394,6 +487,19 @@ export default function GraduationPage() {
                 >
                   <CalendarPlus className="h-3 w-3" />
                   계절학기 추가
+                </button>
+                <button
+                  onClick={() =>
+                    setEtcPicker({
+                      year: new Date().getFullYear(),
+                      semester: 4,
+                      selected: [],
+                    })
+                  }
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground border border-border rounded px-2.5 py-1 hover:bg-muted transition-colors"
+                >
+                  <MoreHorizontal className="h-3 w-3" />
+                  기타
                 </button>
                 <button
                   onClick={() => setSortDesc((v) => !v)}
@@ -872,6 +978,176 @@ export default function GraduationPage() {
                 style={{ backgroundColor: "#B0232A" }}
               >
                 다음
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 기타 과목 선택 모달 ──────────────────────────── */}
+      {etcPicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={(e) => e.target === e.currentTarget && !etcSaving && setEtcPicker(null)}
+        >
+          <div className="w-full max-w-sm rounded-xl border border-border bg-background shadow-xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                <MoreHorizontal className="h-4 w-4" style={{ color: "#B0232A" }} />
+                기타 과목 선택
+              </h3>
+              <button
+                onClick={() => !etcSaving && setEtcPicker(null)}
+                className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 flex flex-col gap-4">
+              {etcError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded px-3 py-2">
+                  {etcError}
+                </p>
+              )}
+
+              {/* 과목 체크리스트 */}
+              <div className="flex flex-col gap-1.5">
+                {ETC_COURSES.map((c) => {
+                  const available = c.semesters.includes(etcPicker.semester)
+                  const checked = etcPicker.selected.includes(c.code)
+                  return (
+                    <button
+                      key={c.code}
+                      type="button"
+                      disabled={!available}
+                      onClick={() => {
+                        setEtcError(null)
+                        setEtcPicker({
+                          ...etcPicker,
+                          selected: checked
+                            ? etcPicker.selected.filter((x) => x !== c.code)
+                            : [...etcPicker.selected, c.code],
+                        })
+                      }}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-md border text-left transition-colors ${
+                        !available
+                          ? "border-border bg-muted/30 opacity-40 cursor-not-allowed"
+                          : checked
+                          ? "border-[#B0232A] bg-red-50"
+                          : "border-border hover:bg-muted/40"
+                      }`}
+                    >
+                      <span
+                        className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${
+                          checked
+                            ? "border-transparent text-white"
+                            : "border-border bg-background"
+                        }`}
+                        style={checked ? { backgroundColor: "#B0232A" } : undefined}
+                      >
+                        {checked && <Check className="h-3 w-3" />}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">
+                          {c.name}
+                        </p>
+                        <p className="text-[11px] font-mono text-muted-foreground">
+                          {c.code} · 3학점 · 교양
+                        </p>
+                      </div>
+                      {!available && (
+                        <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                          하계 미개설
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* 년도 */}
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                  년도
+                </label>
+                <select
+                  value={etcPicker.year}
+                  onChange={(e) =>
+                    setEtcPicker({
+                      ...etcPicker,
+                      year: Number(e.target.value),
+                    })
+                  }
+                  className="w-full h-9 px-3 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-[#B0232A]"
+                >
+                  {SEASONAL_YEARS.map((y) => (
+                    <option key={y} value={y}>
+                      {y}년
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 학기 토글 — 학기 바꾸면 그 학기에 없는 과목은 자동 해제 */}
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                  학기
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([3, 4] as const).map((s) => {
+                    const active = etcPicker.semester === s
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() =>
+                          setEtcPicker({
+                            ...etcPicker,
+                            semester: s,
+                            selected: etcPicker.selected.filter((code) => {
+                              const def = ETC_COURSES.find((c) => c.code === code)
+                              return def?.semesters.includes(s) ?? false
+                            }),
+                          })
+                        }
+                        className={`h-9 rounded-md text-sm border transition-colors ${
+                          active
+                            ? "text-white border-transparent"
+                            : "text-muted-foreground border-border hover:bg-muted"
+                        }`}
+                        style={active ? { backgroundColor: "#B0232A" } : undefined}
+                      >
+                        {semesterDisplay(s)}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-border flex gap-2">
+              <button
+                onClick={() => !etcSaving && setEtcPicker(null)}
+                disabled={etcSaving}
+                className="flex-1 h-9 rounded-md border border-border text-sm text-muted-foreground hover:bg-muted transition-colors disabled:opacity-40"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleEtcSave}
+                disabled={etcSaving || etcPicker.selected.length === 0}
+                className="flex-1 h-9 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ backgroundColor: "#B0232A" }}
+              >
+                {etcSaving ? (
+                  <span className="flex items-center justify-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    추가 중
+                  </span>
+                ) : (
+                  `${etcPicker.selected.length}개 추가`
+                )}
               </button>
             </div>
           </div>

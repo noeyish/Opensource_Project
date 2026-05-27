@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import { getCurrentSemester } from "@/lib/utils"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Upload, CheckCircle, GraduationCap, FileImage, BookOpen, X, Pencil, Loader2 } from "lucide-react"
+import { ArrowLeft, Upload, CheckCircle, BookOpen, X, Pencil, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/layout/theme-toggle"
 
@@ -300,8 +300,7 @@ export default function TimetablePage() {
                 업로드 중... ({pendingCount}개)
               </span>
             ) : (
-              <span className="flex items-center justify-center gap-2">
-                <GraduationCap className="h-4 w-4" />
+              <span className="flex items-center justify-center">
                 {pendingCount > 0
                   ? `${pendingCount}개 시간표 최종 제출`
                   : "시간표를 선택해주세요"}
@@ -313,16 +312,13 @@ export default function TimetablePage() {
           <div className="rounded-lg border border-border bg-card p-5">
             <h3 className="text-sm font-semibold text-foreground mb-3">업로드 안내</h3>
             <ul className="flex flex-col gap-2 text-xs text-muted-foreground">
-              <li className="flex items-start gap-2">
-                <FileImage className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" style={{ color: "#B0232A" }} />
+              <li>
                 <span>에브리타임에서 해당 학기 <strong>시간표</strong> 전체 화면을 캡처해주세요.</span>
               </li>
-              <li className="flex items-start gap-2">
-                <BookOpen className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" style={{ color: "#B0232A" }} />
+              <li>
                 <span>과목명과 시간표 전체가 잘리지 않고 명확히 보여야 정확한 인식이 가능합니다.</span>
               </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" style={{ color: "#B0232A" }} />
+              <li>
                 <span>이수한 모든 학기를 해당 년도/학기에 업로드 후 <strong>최종 제출</strong>을 누르면 시간표 인식이 시작됩니다.</span>
               </li>
             </ul>

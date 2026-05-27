@@ -21,6 +21,11 @@ logs:
 ps:
 	$(DC_DEV) ps
 
+# Playwright e2e용 테스트 계정 시드 (멱등)
+# 백엔드 컨테이너가 떠있어야 함 (make dev)
+e2e-seed:
+	$(DC_DEV) exec -T -e PYTHONPATH=/app backend python scripts/e2e_seed_user.py
+
 # ── 프로덕션 배포 ──────────────────────────────────────
 prod:
 	bash scripts/pre-deploy.sh
@@ -55,12 +60,41 @@ prod-logs-obs:
 	$(DC_PROD_OBS) logs -f loki promtail grafana
 
 # ── 모니터링 서버 분리 구조 ────────────────────────────
-# 모니터링 서버 (163.239.77.66) — Loki + Prometheus + Grafana
+# 모니터링 서버 (163.239.77.66) — Loki + Prometheus + Grafana + InfluxDB
 obs-server-up:
-	docker compose -f docker-compose.observability.server.yml up -d --build
+	docker compose -p mon -f docker-compose.observability.server.yml up -d --build
 
 obs-server-down:
-	docker compose -f docker-compose.observability.server.yml down
+	docker compose -p mon -f docker-compose.observability.server.yml down
 
 obs-server-logs:
-	docker compose -f docker-compose.observability.server.yml logs -f
+	docker compose -p mon -f docker-compose.observability.server.yml logs -f
+
+# ── 부하 테스트 (JMeter → InfluxDB → Grafana) ──────────
+# 사용 예: make jmeter-run BASE_HOST=163.239.77.67 BASE_PORT=8000 THREADS=50 DURATION=120
+# 결과는 Grafana 대시보드 "Apache JMeter — Load Test"에서 실시간 확인
+JMETER_FILE   ?= seoganpyo-smoke.jmx
+BASE_HOST     ?= host.docker.internal
+BASE_PORT     ?= 8000
+BASE_SCHEME   ?= http
+THREADS       ?= 20
+RAMPUP        ?= 10
+DURATION      ?= 60
+TEST_NAME     ?= seoganpyo-smoke
+
+jmeter-run:
+	docker compose -p mon -f docker-compose.observability.server.yml --profile jmeter run --rm jmeter \
+		-n -t /tests/$(JMETER_FILE) \
+		-l /results/$(TEST_NAME)-$(shell date +%Y%m%d-%H%M%S).jtl \
+		-JBASE_HOST=$(BASE_HOST) -JBASE_PORT=$(BASE_PORT) -JBASE_SCHEME=$(BASE_SCHEME) \
+		-JTHREADS=$(THREADS) -JRAMPUP=$(RAMPUP) -JDURATION=$(DURATION) \
+		-JTEST_NAME=$(TEST_NAME) \
+		-JINFLUX_URL=http://influxdb:8086/write?db=jmeter
+
+jmeter-report:
+	@ls -lt infra/loadtest/jmeter/results/*.jtl 2>/dev/null | head -5 || echo "결과 없음"
+
+# ── 정적 분석 (SonarCloud) ──────────────────────────────
+# 분석은 PR/push 시 GitHub Actions(.github/workflows/sonarcloud.yml)가 자동 실행.
+# 로컬에서 수동 분석은 사용하지 않음 (SonarCloud SaaS 라 인스턴스 운영 부담 0).
+# 결과는 https://sonarcloud.io/dashboard?id=<projectKey> + PR 코멘트로 표시.

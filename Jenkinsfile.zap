@@ -176,9 +176,22 @@ pipeline {
                         exit 0
                     fi
 
-                    # 진단 모드: HTTP 코드 + 응답 body 출력.
+                    # ── DefectDojo 사전 ping (3회 재시도) ──
+                    # DD 가 새벽 시간대에 일시적으로 응답 안 하는 케이스 (빌드 #19 등에서 HTTP 000 으로 실패) 대응.
+                    # 본 업로드 전에 연결 가능한지 먼저 확인 — 실패 시 진단 메시지 명확하게 출력.
+                    echo "── DefectDojo 연결 확인 ──"
+                    PING_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                        --max-time 10 --retry 3 --retry-delay 10 --retry-connrefused \
+                        "${DD_URL}/api/v2/users/" \
+                        -H "Authorization: Token ${DD_TOKEN}" || echo "000")
+                    echo "ping: HTTP $PING_CODE"
+
+                    # ── 본 업로드 (지수 백오프 재시도) ──
+                    # --retry 5 + --retry-delay 30 + --retry-connrefused: 일시적 다운 대응 (총 2.5분 budget)
+                    # --retry-max-time 600: 안전 캡 — 10분 넘게 매달리지 않게
                     # DefectDojo 의 ZAP Scan importer 는 XML 형식만 받음.
                     HTTP_CODE=$(curl -s -o /tmp/dd-response.txt -w "%{http_code}" \
+                        --max-time 60 --retry 5 --retry-delay 30 --retry-connrefused --retry-max-time 600 \
                         -X POST "${DD_URL}/api/v2/import-scan/" \
                         -H "Authorization: Token ${DD_TOKEN}" \
                         -F "scan_type=ZAP Scan" \
@@ -188,20 +201,27 @@ pipeline {
                         -F "verified=false" \
                         -F "close_old_findings=true" \
                         -F "branch_tag=nightly-zap" \
-                        -F "build_id=${BUILD_NUMBER}")
+                        -F "build_id=${BUILD_NUMBER}" || echo "000")
 
                     echo "── DefectDojo response ──"
                     echo "HTTP $HTTP_CODE"
                     echo "Body:"
-                    cat /tmp/dd-response.txt
+                    cat /tmp/dd-response.txt 2>/dev/null || echo "(empty)"
                     echo ""
 
                     case "$HTTP_CODE" in
                         200|201)
                             echo "✓ Uploaded: zap-baseline.xml"
                             ;;
+                        000)
+                            echo "✗ Upload 실패: DefectDojo (${DD_URL}) 에 연결 실패 (재시도 5회 모두 실패)"
+                            echo "  └ 가능 원인: DefectDojo 서버 다운 / 방화벽 변경 / 토큰 회전"
+                            echo "  └ XML 결과는 archiveArtifacts 로 보존됨 — Jenkins 에서 다운로드 후 수동 업로드 가능"
+                            exit 1
+                            ;;
                         *)
-                            echo "✗ Upload 실패 (HTTP $HTTP_CODE)"
+                            echo "✗ Upload 실패 (HTTP $HTTP_CODE — DefectDojo 응답 거부)"
+                            echo "  └ Body 위에 출력됨 — 토큰/engagement ID/scan_type 확인 필요"
                             exit 1
                             ;;
                     esac
@@ -217,6 +237,13 @@ pipeline {
             sh '''
                 docker compose -p ${COMPOSE_PROJECT} -f docker-compose.yml -f docker-compose.zap.yml down -v --remove-orphans || true
             '''
+            // ZAP 결과는 업로드 성공/실패와 무관하게 보존 — DefectDojo 다운 시 수동 업로드 가능.
+            // xml: DefectDojo importer 용, html: 사람이 직접 보기, json: 자동화 도구용.
+            archiveArtifacts(
+                artifacts: 'security-reports/zap-baseline.xml, security-reports/zap-baseline.json, security-reports/zap-baseline.html',
+                allowEmptyArchive: true,
+                fingerprint: true
+            )
         }
         success {
             sh '''

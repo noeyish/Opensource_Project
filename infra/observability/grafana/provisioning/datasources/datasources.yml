@@ -18,3 +18,14 @@ datasources:
       url: http://prometheus:9090
       isDefault: false
       editable: false
+
+    - name: InfluxDB-JMeter
+      uid: influxdb-jmeter
+      type: influxdb
+      access: proxy
+      url: http://influxdb:8086
+      database: jmeter
+      isDefault: false
+      editable: false
+      jsonData:
+          httpMode: GET

@@ -148,21 +148,28 @@ export const cartApi = {
 // ── Timetables (4-슬롯 후보 시간표) ───────────────────
 export type SlotChar = "A" | "B" | "C" | "D"
 
-// 슬롯 표시용 별명 — DB 의 slot 컬럼은 A/B/C/D 로 두고 UI 만 한글로 매핑.
-// 긴 이름: 시간표 탭, 비교 모달 헤더 등 공간 여유 있는 곳.
+// 슬롯 기본 라벨. 사용자가 별명 지정(Timetable.name) 하면 그쪽이 우선.
+// 표시 헬퍼 displaySlotName 으로 항상 이쪽을 거치게 한다.
 export const SLOT_LABELS: Record<SlotChar, string> = {
-  A: "퀸민디",
-  B: "마여니",
-  C: "힝우행우",
-  D: "유화니",
+  A: "A",
+  B: "B",
+  C: "C",
+  D: "D",
 }
 
-// 짧은 이름: 검색 결과 카드의 슬롯 선택 dropdown 등 좁은 공간.
+// 좁은 공간(검색 결과 카드의 슬롯 선택 dropdown 등) 용 — 현재는 길이가 같지만
+// 따로 두어 UI 마다 표시 정책 다르게 갈 여지 남김.
 export const SLOT_SHORT_LABELS: Record<SlotChar, string> = {
-  A: "퀸ver",
-  B: "마ver",
-  C: "힝ver",
-  D: "유ver",
+  A: "A",
+  B: "B",
+  C: "C",
+  D: "D",
+}
+
+/** Timetable.name 이 있으면 그걸, 없으면 기본 라벨(A/B/C/D)을 돌려준다. */
+export function displaySlotName(slot: SlotChar, name?: string | null): string {
+  const trimmed = name?.trim()
+  return trimmed ? trimmed : SLOT_LABELS[slot]
 }
 
 export interface TimetableCourseItem {
@@ -602,7 +609,12 @@ export interface PortfolioEvaluation {
   id: number
   status: EvaluationStatus
   error_message: string | null
+  // 0~6 정수 — UI 에서 /2 해서 0~3 별점(0.5 단위) 표시.
   alignment_score: number | null
+  // 4 차원 별점 — { skill_fit, depth, concreteness, breadth } 각 0~6.
+  rubric: Record<string, number>
+  // 5 섹션 별점 — { campus_activity, external_activity, ... } 각 0~6.
+  section_scores: Record<string, number>
   summary: string | null
   strengths: string[]
   weaknesses: string[]
@@ -620,6 +632,12 @@ export const portfolioApi = {
     request<PortfolioBySection>("/api/v1/portfolio/bulk", {
       method: "PUT",
       body: JSON.stringify(sections),
+    }),
+
+  // 전체 초기화 — 모든 항목과 평가 이력 삭제
+  resetAll: () =>
+    request<void>("/api/v1/portfolio/all", {
+      method: "DELETE",
     }),
 
   // 평가 요청 — 즉시 pending 응답 반환 (백그라운드 처리)

@@ -243,6 +243,25 @@ make down-obs # 관측 스택 종료
 - **Groq** API(`llama-3.3-70b`)는 강의계획서 PDF 분석에 사용 — `GROQ_API_KEY` 필요.
 - **Gemini** API(`gemini-2.5-flash`)는 관리자 챗·보안 분석에 사용 — `GEMINI_API_KEY` 필요.
 
+### SonarCloud (코드 품질)
+
+- **운영 방식**: SonarCloud SaaS 사용 — 서버 운영 부담 없음. PR/push 마다 GitHub Actions 가 자동 분석 → PR 페이지에 봇 코멘트로 결과 표시.
+- **사유**: self-hosted SonarQube 는 VDI reset/다운으로 토큰이 자주 무효화돼 운영 비용 큼. SonarCloud 는 public 레포 무료.
+- **최초 셋업** (1회):
+  1. https://sonarcloud.io 가입 — GitHub 계정 연동
+  2. "+" → Analyze new project → 팀 GitHub Organization 선택 → 이 리포 import
+  3. 발급된 `organization key` / `projectKey` 가 `sonar-project.properties` 의 값과 일치하는지 확인 (다르면 properties 수정)
+  4. Project Settings → Analysis Method 를 **"With GitHub Actions"** 로 (Automatic Analysis 끔)
+  5. My Account → Security → 토큰 발급 → GitHub 팀 레포 Settings → Secrets → `SONAR_TOKEN` 으로 저장
+- **분석 흐름**: PR 열거나 dev/main 에 push 하면 `.github/workflows/sonarcloud.yml` 가 자동 실행 → 약 2-5분 후 PR 에 봇 코멘트:
+  ```
+  ✅ Quality Gate passed
+  Bugs: 0  •  Vulnerabilities: 1  •  Code Smells: 12
+  Coverage: 67.3%  •  Duplications: 4.1%
+  ```
+- **대시보드**: https://sonarcloud.io/dashboard?id=&lt;projectKey&gt;
+- **Quality Gate**: SonarCloud 의 기본 `Sonar way` 가 이미 "New Code only" 기반이라 신규 코드만 게이트. 추가 조정은 Quality Gates → Project 에 다른 게이트 적용.
+
 ### 모니터링
 
 - `make up-obs`는 `make dev`가 실행 중인 상태에서 overlay로 추가 실행하는 것 — 단독 실행 불가.

@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# 베이스 이미지는 Debian 코드네임 핀 필수 — prod Dockerfile 과 동일 정책.
+# `python:3.11-slim` unpin 은 Docker Hub 가 임의 시점에 다음 stable 로 떠내려보냄.
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -10,14 +12,30 @@ WORKDIR /app
 # admin_assistant.get_container_status는 docker CLI 필요하지만,
 # 로컬 개발에선 거의 사용 안 함. 필요하면 prod Dockerfile 사용 (또는 호스트 docker.sock 마운트로 대체).
 
-# 종속성 설치
+# 종속성 설치.
+# pip / wheel / setuptools 를 먼저 업그레이드 — base 이미지 기본 버전이
+#   pip 24.0  (CVE-2025-8869, CVE-2026-1703, CVE-2026-3219, CVE-2026-6357)
+#   wheel 0.45.1 (CVE-2026-24049 — path traversal → privesc)
+#   setuptools 79.0.1 (path traversal via wheel vendoring)
+# prod Dockerfile 과 동일 정책 — 버전 핀 박음 (hadolint DL3013, 재현성, 미래 회귀 방지).
 COPY requirements.txt .
-RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip==26.1.1 wheel==0.47.0 setuptools==82.0.1 \
+    && pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
 
 # 애플리케이션 코드 (compose에서 volume mount하므로 사실상 의미 없음)
 COPY ./app ./app
 COPY ./static ./static
 COPY ./data ./data
+
+# ── dev 는 root 유지 ──
+# 이유: (1) docker.sock 마운트 — admin_assistant 의 docker 도구가 호스트 docker 호출 가능해야 함
+#      (2) 호스트 볼륨 마운트 (.:/app) — 호스트 소유 파일에 컨테이너가 쓰기 가능해야 핫리로드 정상 동작
+# prod (Dockerfile) 는 docker.sock 미마운트라 non-root 적용됨. 일관성 vs 실용성에서 후자 선택.
+# hadolint ignore=DL3002
+
+# HEALTHCHECK — docker-compose 도 healthcheck 정의하지만 Dockerfile 에 두면 Trivy DS-026 만족.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/', timeout=5).status < 500 else 1)" || exit 1
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

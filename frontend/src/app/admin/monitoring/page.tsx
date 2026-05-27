@@ -11,6 +11,7 @@ const GRAFANA_URL = process.env.NEXT_PUBLIC_GRAFANA_URL || "http://localhost:300
 const DASHBOARDS = [
   { id: "seoganpyo-overview", label: "로그" },
   { id: "seoganpyo-metrics", label: "메트릭" },
+  { id: "jmeter-loadtest", label: "부하 테스트" },
 ]
 
 function getAdminToken() {

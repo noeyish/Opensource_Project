@@ -133,3 +133,7 @@ jobs:
       - uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
+
+  # 참고: SonarQube 정적 분석은 CI 에서 돌리지 않는다.
+  # 분석 담당자가 자기 PC 에 `make up-sonar` 로 띄운 로컬 인스턴스에서 `make scan` 수동 실행.
+  # 사유: VDI 의 SonarQube 가 reset/다운으로 토큰이 무효화되는 사고가 반복돼 운영 안정성을 위해 로컬 운영으로 전환.

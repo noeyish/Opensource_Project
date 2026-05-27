@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 from app.services import auth_service
+from app.services import discord_service
 from app.services import email_service
 from app.services import user_service
 from app.schemas.auth import EmailRequest, VerifyRequest, ResetPasswordRequest
@@ -77,6 +78,11 @@ def register(req: UserCreate, background_tasks: BackgroundTasks, db: Session = D
     background_tasks.add_task(
         email_service.send_approval_request_email,
         req.name, req.email, req.student_id, approval_url,
+    )
+    # Discord 알림 — admin 이 신청 놓치지 않게. webhook 미설정/실패해도 회원가입은 정상 진행.
+    background_tasks.add_task(
+        discord_service.send_signup_notification,
+        req.name, req.student_id, req.email,
     )
     return user
 

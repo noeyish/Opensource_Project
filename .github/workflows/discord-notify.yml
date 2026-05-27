@@ -1,0 +1,137 @@
+name: Discord Notify
+
+# 다른 워크플로 완료 시 conclusion에 따라 성공/실패 Discord 채널로 라우팅한다.
+# GitHub 네이티브 Discord Webhook(repo Settings → Webhooks)이 한 채널로 보내는 걸
+# 대체하는 용도 — 본 워크플로 활성화 후 repo Webhook에서 "Workflow runs" 이벤트는 끌 것.
+#
+# 필요한 GitHub Secrets:
+#   DISCORD_WEBHOOK_SUCCESS — 성공 채널 Webhook URL
+#   DISCORD_WEBHOOK_FAILURE — 실패 채널 Webhook URL
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - Security Scan
+      - TODO to Issue
+      - Loki LLM Digest
+    types: [completed]
+
+# 잡 상태 조회용 — workflow_run 의 jobs API 호출에 필요.
+permissions:
+  actions: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    # cancelled / skipped 는 알림 노이즈 — success / failure 만 라우팅.
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: 잡 상태 수집
+        id: jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+
+          # 워크플로 안의 잡 목록 + 각 잡의 conclusion 가져오기.
+          # conclusion 이 null 인 잡(아직 진행중)은 노이즈라 필터링.
+          JOBS_TEXT=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" --paginate \
+            --jq '.jobs[]
+              | select(.conclusion != null)
+              | (if   .conclusion == "success"   then "✅"
+                 elif .conclusion == "failure"   then "❌"
+                 elif .conclusion == "cancelled" then "⚪"
+                 elif .conclusion == "skipped"   then "⏭️"
+                 else "❓" end) + " " + .name')
+
+          # Discord embed field value 는 1024자 제한.
+          # 잡이 너무 많으면 잘라낼 안전장치. ($'\n' 으로 줄바꿈 안전하게 삽입.)
+          if [ "${#JOBS_TEXT}" -gt 1000 ]; then
+            JOBS_TEXT="${JOBS_TEXT:0:950}"$'\n... (이하 생략)'
+          fi
+
+          # 빈 결과 방어 — 잡 정보 못 가져오면 placeholder.
+          if [ -z "$JOBS_TEXT" ]; then
+            JOBS_TEXT="(잡 정보 없음)"
+          fi
+
+          # 멀티라인 GITHUB_OUTPUT 전달.
+          {
+            echo 'text<<EOF'
+            echo "$JOBS_TEXT"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Discord 채널로 알림 전송
+        env:
+          WEBHOOK_SUCCESS: ${{ secrets.DISCORD_WEBHOOK_SUCCESS }}
+          WEBHOOK_FAILURE: ${{ secrets.DISCORD_WEBHOOK_FAILURE }}
+          WF_NAME: ${{ github.event.workflow_run.name }}
+          WF_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WF_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WF_URL: ${{ github.event.workflow_run.html_url }}
+          WF_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          WF_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+          JOBS_TEXT: ${{ steps.jobs.outputs.text }}
+        run: |
+          set -e
+
+          if [ "$WF_CONCLUSION" = "success" ]; then
+            WEBHOOK="$WEBHOOK_SUCCESS"
+            COLOR=3066993        # 초록 (왼쪽 컬러 스트라이프로 성공 표시)
+            STATUS_KO="성공"
+          else
+            WEBHOOK="$WEBHOOK_FAILURE"
+            COLOR=15158332       # 빨강
+            STATUS_KO="실패"
+          fi
+
+          if [ -z "$WEBHOOK" ]; then
+            echo "::warning::Webhook secret 미설정 — 알림 건너뜀 ($WF_CONCLUSION 채널)"
+            exit 0
+          fi
+
+          SHORT_SHA="${WF_SHA:0:8}"
+
+          # jq 로 안전하게 JSON 구성 (특수문자 이스케이프 자동 처리).
+          # 인라인 필드 값은 백틱으로 감싸 Discord 가 코드블록(박스) 스타일로 렌더링하도록 한다.
+          PAYLOAD=$(jq -n \
+            --arg title "${WF_NAME} ${STATUS_KO}" \
+            --arg url "$WF_URL" \
+            --arg branch "$WF_BRANCH" \
+            --arg actor "$WF_ACTOR" \
+            --arg sha "$SHORT_SHA" \
+            --arg repo "$REPO" \
+            --arg jobs "$JOBS_TEXT" \
+            --argjson color "$COLOR" \
+            '{
+              username: "GitHub Actions",
+              embeds: [{
+                title: $title,
+                url: $url,
+                color: $color,
+                fields: [
+                  { name: "Repository", value: "`\($repo)`",   inline: true  },
+                  { name: "Branch",     value: "`\($branch)`", inline: true  },
+                  { name: "Commit",     value: "`\($sha)`",    inline: true  },
+                  { name: "Actor",      value: "`\($actor)`",  inline: true  },
+                  { name: "Jobs",       value: $jobs,          inline: false }
+                ]
+              }]
+            }')
+
+          # Discord 응답을 명시적으로 체크 — 4xx/5xx 도 curl 은 기본적으로 exit 0 이라
+          # 알림이 조용히 실패하는 걸 막기 위해 HTTP 상태 코드로 직접 판정한다.
+          HTTP_CODE=$(curl -sS -o /tmp/discord_resp.txt -w "%{http_code}" -X POST "$WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+          echo "Discord HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::Discord webhook 실패 (HTTP $HTTP_CODE)"
+            cat /tmp/discord_resp.txt
+            exit 1
+          fi

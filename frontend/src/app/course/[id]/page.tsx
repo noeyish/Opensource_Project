@@ -10,7 +10,6 @@ import {
     BookOpen,
     UserCircle,
     FileText,
-    Clock,
     FlaskConical,
     Mail,
     Globe,
@@ -255,7 +254,7 @@ export default function CourseDetailPage({ params }: Props) {
                                 style={{ borderColor: "#B0232A" }}
                             >
                                 <div className="flex items-center gap-2 mb-1.5">
-                                    <span className="font-mono text-xs font-medium text-muted-foreground tracking-wide uppercase">
+                                    <span className="text-xs font-medium text-muted-foreground tracking-wide uppercase">
                                         {course.course_code}
                                     </span>
                                     {course.course_category && (
@@ -294,7 +293,6 @@ export default function CourseDetailPage({ params }: Props) {
                             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
                                 {(course.professor?.name || course.professor_id) && (
                                     <div className="flex items-center gap-1.5">
-                                        <UserCircle className="h-3.5 w-3.5 flex-shrink-0" />
                                         <span>
                                             {course.professor?.name ??
                                                 `교수 ID: ${course.professor_id}`}
@@ -303,7 +301,6 @@ export default function CourseDetailPage({ params }: Props) {
                                 )}
                                 {(course.class_days || course.class_start_time) && (
                                     <div className="flex items-center gap-1.5">
-                                        <Clock className="h-3.5 w-3.5 flex-shrink-0" />
                                         <span>
                                             {[
                                                 course.class_days,
@@ -338,7 +335,6 @@ export default function CourseDetailPage({ params }: Props) {
                                             : {}
                                     }
                                 >
-                                    <FileText className="h-3.5 w-3.5" />
                                     강의계획서
                                 </button>
                                 <button
@@ -354,7 +350,6 @@ export default function CourseDetailPage({ params }: Props) {
                                             : {}
                                     }
                                 >
-                                    <BookOpen className="h-3.5 w-3.5" />
                                     교수 및 연구실
                                 </button>
                             </div>

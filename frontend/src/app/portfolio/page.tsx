@@ -18,6 +18,9 @@ import {
   FolderGit2,
   AlertCircle,
   X,
+  RotateCcw,
+  Star,
+  StarHalf,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -76,6 +79,48 @@ const SECTIONS: SectionConfig[] = [
   },
 ]
 
+// 4 차원 rubric 라벨 — 백엔드 ai_service.RUBRIC_KEYS 와 동기 유지.
+const RUBRIC_DIMENSIONS: { key: string; label: string; hint: string }[] = [
+  { key: "skill_fit",    label: "기술 적합도", hint: "목표 직무 핵심 기술과의 부합도" },
+  { key: "depth",        label: "경험 깊이",   hint: "단순 참여 vs 주도/장기 vs 결과 산출" },
+  { key: "concreteness", label: "구체성",      hint: "정량 지표·임팩트의 명시 여부" },
+  { key: "breadth",      label: "다양성",      hint: "활동 유형 분포" },
+]
+
+// score: 0~6 정수를 받아 0~3 별점(0.5 단위) 으로 표시.
+function StarRating({ score, size = "md" }: { score: number; size?: "sm" | "md" | "lg" }) {
+  const stars = (score ?? 0) / 2  // 0~3.0 (0.5 단위)
+  const dims = size === "lg" ? "h-5 w-5" : size === "sm" ? "h-3 w-3" : "h-4 w-4"
+  const items = [0, 1, 2].map((i) => {
+    const remaining = stars - i
+    if (remaining >= 1) return "full" as const
+    if (remaining >= 0.5) return "half" as const
+    return "empty" as const
+  })
+  return (
+    <span className="inline-flex items-center gap-0.5" aria-label={`${stars.toFixed(1)}/3 별점`}>
+      {items.map((kind, i) => {
+        if (kind === "full") {
+          return <Star key={i} className={dims} fill="#F5A623" stroke="#F5A623" />
+        }
+        if (kind === "half") {
+          return (
+            <span key={i} className="relative inline-block">
+              <Star className={dims} stroke="#F5A623" fill="none" />
+              <StarHalf
+                className={`${dims} absolute inset-0`}
+                fill="#F5A623"
+                stroke="#F5A623"
+              />
+            </span>
+          )
+        }
+        return <Star key={i} className={dims} stroke="#D4D4D8" fill="none" />
+      })}
+    </span>
+  )
+}
+
 type LocalEntry = {
   localId: string
   serverId: number | null
@@ -108,6 +153,7 @@ export default function PortfolioPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
 
   const [evaluation, setEvaluation] = useState<PortfolioEvaluation | null>(null)
   const [evalError, setEvalError] = useState<{
@@ -290,6 +336,31 @@ export default function PortfolioPage() {
       alert(err instanceof Error ? err.message : "저장에 실패했습니다.")
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleResetAll = async () => {
+    const ok = window.confirm(
+      "포트폴리오에 저장된 모든 항목과 지금까지의 AI 평가 결과가 함께 삭제됩니다.\n정말 초기화할까요?",
+    )
+    if (!ok) return
+    setIsResetting(true)
+    try {
+      stopPolling()
+      await portfolioApi.resetAll()
+      setSections({
+        campus_activity: [newLocalEntry()],
+        external_activity: [newLocalEntry()],
+        certificate: [newLocalEntry()],
+        award: [newLocalEntry()],
+        project: [newLocalEntry()],
+      })
+      setEvaluation(null)
+      setEvalError(null)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "초기화에 실패했습니다.")
+    } finally {
+      setIsResetting(false)
     }
   }
 
@@ -497,29 +568,65 @@ export default function PortfolioPage() {
               </div>
 
               {evaluation.alignment_score != null && (
-                <div className="flex items-center gap-4">
-                  <div
-                    className="flex flex-col items-center justify-center rounded-lg w-20 h-20 flex-shrink-0"
-                    style={{ backgroundColor: "rgba(176, 35, 42, 0.1)" }}
-                  >
-                    <span
-                      className="text-2xl font-bold"
-                      style={{ color: "#B0232A" }}
+                <div className="flex flex-col gap-4">
+                  {/* 종합 별점 + 요약 */}
+                  <div className="flex items-center gap-4">
+                    <div
+                      className="flex flex-col items-center justify-center rounded-lg w-24 h-24 flex-shrink-0"
+                      style={{ backgroundColor: "rgba(176, 35, 42, 0.08)" }}
                     >
-                      {evaluation.alignment_score}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">/ 100</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-muted-foreground mb-1">
-                      목표 직무 정합성
+                      <span className="text-xl font-bold" style={{ color: "#B0232A" }}>
+                        {(evaluation.alignment_score / 2).toFixed(1)}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground mb-1">/ 3.0</span>
+                      <StarRating score={evaluation.alignment_score} size="sm" />
                     </div>
-                    {evaluation.summary && (
-                      <p className="text-sm text-foreground leading-relaxed">
-                        {evaluation.summary}
-                      </p>
-                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-muted-foreground mb-1">
+                        목표 직무 정합성 (종합)
+                      </div>
+                      {evaluation.summary && (
+                        <p className="text-sm text-foreground leading-relaxed">
+                          {evaluation.summary}
+                        </p>
+                      )}
+                    </div>
                   </div>
+
+                  {/* 4 차원 rubric breakdown */}
+                  {Object.keys(evaluation.rubric).length > 0 && (
+                    <div className="rounded-md border border-border bg-muted/20 p-3">
+                      <div className="text-xs font-semibold text-muted-foreground mb-2">
+                        채점 항목별 점수
+                      </div>
+                      <div className="grid gap-1.5 sm:grid-cols-2">
+                        {RUBRIC_DIMENSIONS.map((dim) => {
+                          const raw = evaluation.rubric[dim.key] ?? 0
+                          return (
+                            <div
+                              key={dim.key}
+                              className="flex items-center justify-between gap-3 px-2 py-1.5 rounded bg-background/60"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-medium text-foreground">
+                                  {dim.label}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground truncate">
+                                  {dim.hint}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <StarRating score={raw} size="sm" />
+                                <span className="text-xs font-mono text-muted-foreground tabular-nums">
+                                  {(raw / 2).toFixed(1)}
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -565,25 +672,41 @@ export default function PortfolioPage() {
                 </div>
               )}
 
-              {Object.keys(evaluation.by_section).length > 0 && (
+              {(Object.keys(evaluation.by_section).length > 0 ||
+                Object.keys(evaluation.section_scores).length > 0) && (
                 <div>
-                  <h3 className="text-base font-bold text-foreground mb-3">섹션별 코멘트</h3>
+                  <h3 className="text-base font-bold text-foreground mb-3">섹션별 평가</h3>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {SECTIONS.map((cfg) => {
                       const comment = evaluation.by_section[cfg.kind]
-                      if (!comment) return null
+                      const sectionScore = evaluation.section_scores[cfg.kind]
+                      if (!comment && sectionScore == null) return null
                       return (
                         <div
                           key={cfg.kind}
                           className="rounded-md border border-border bg-muted/30 p-3"
                         >
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <cfg.icon className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-sm font-semibold text-foreground">{cfg.label}</span>
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <cfg.icon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                              <span className="text-sm font-semibold text-foreground truncate">
+                                {cfg.label}
+                              </span>
+                            </div>
+                            {sectionScore != null && (
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <StarRating score={sectionScore} size="sm" />
+                                <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+                                  {(sectionScore / 2).toFixed(1)}
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            {comment}
-                          </p>
+                          {comment && (
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              {comment}
+                            </p>
+                          )}
                         </div>
                       )
                     })}
@@ -703,6 +826,30 @@ export default function PortfolioPage() {
                 </>
               )}
             </Button>
+          </div>
+
+          {/* 위험 영역: 전체 초기화 */}
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/10 p-5">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-red-700 dark:text-red-300">
+                  포트폴리오 전체 초기화
+                </h3>
+                <p className="mt-1 text-xs text-red-600/80 dark:text-red-400/80 leading-relaxed">
+                  저장된 모든 항목과 지금까지의 AI 평가 결과가 함께 삭제됩니다. 되돌릴 수 없어요.
+                </p>
+              </div>
+              <Button
+                onClick={handleResetAll}
+                disabled={isResetting || isSaving}
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5 border-red-300 text-red-700 hover:bg-red-100 hover:text-red-800 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-950/40"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {isResetting ? "초기화 중..." : "전체 초기화"}
+              </Button>
+            </div>
           </div>
         </div>
       </main>
