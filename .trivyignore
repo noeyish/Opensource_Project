@@ -12,4 +12,9 @@
 # 두 파일 모두 hadolint ignore=DL3002 + 인라인 사유 코멘트 박혀있음.
 # prod 3개(Dockerfile, frontend/Dockerfile, ocr-service/Dockerfile)는 모두 USER 적용됨 (PR #177).
 # hadolint(DL3002)가 prod 회귀 방지 안전망 역할.
+#
+# Trivy 의 misconfig 룰 실제 ID 는 AVD-DS-0002, DefectDojo 표시명은 DS-0002.
+# 둘 다 박아 Trivy 버전 차이에 무관하게 무시되도록 보장.
+# (PR #186 의 DS-0002 만으로는 Trivy 가 무시 안 해서 매 스캔마다 누적된 사례 — 빌드 #N+)
 DS-0002
+AVD-DS-0002

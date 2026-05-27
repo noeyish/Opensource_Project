@@ -9,6 +9,11 @@ import os
 # 앱 임포트 전에 환경변수 설정 — app.database가 SQLite 엔진을 생성하도록
 os.environ["TEST_DATABASE_URL"] = "sqlite:///./test_seoganpyo.db"
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
+# 테스트가 /auth/register 호출할 때 BackgroundTasks 가 실제 Discord webhook 으로
+# "홍길동" 가짜 가입 알림을 매번 발사하지 않도록 강제로 비움.
+# setdefault 가 아닌 직접 대입 — 호스트 환경변수(예: Jenkins workspace 의 .env)가
+# 새어들어와도 무시하고 빈 값 유지.
+os.environ["DISCORD_SIGNUP_WEBHOOK"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

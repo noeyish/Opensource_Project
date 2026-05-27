@@ -281,6 +281,20 @@ pipeline {
                     # up 시 "container name already in use" 충돌로 실패. 같은 사고 재발 차단용.
                     # 이미 위에서 rm 된 경우엔 no-op (|| true).
                     docker rm -f seoganpyo-api seoganpyo-frontend seoganpyo-ocr seoganpyo-redis 2>/dev/null || true
+
+                    # bind-mount 디렉토리 ownership 을 backend 컨테이너 runtime UID(appuser=10001)에 맞춤.
+                    # 배경: backend 가 PR #177 부터 non-root(USER appuser, UID 10001) 로 동작하는데
+                    #   docker-compose 의 ./static:/app/static, ./data:/app/data 가 bind mount 라
+                    #   호스트 디렉토리 소유주가 root 또는 jenkins 이면 컨테이너가 EACCES 로 쓰기 실패
+                    #   (OCR 이미지 업로드 / 게시판 첨부 / 강의계획서 캐시 등).
+                    # Image 레이어의 COPY --chown 은 bind mount 가 덮어씌워 무효 → 호스트 측에서 조정해야 함.
+                    # sudo 권한 없이 처리: docker 의 root 권한으로 alpine 컨테이너 띄워서 chown.
+                    mkdir -p static/uploads/posts data
+                    docker run --rm \
+                        -v "$(pwd)/static:/static" \
+                        -v "$(pwd)/data:/data" \
+                        alpine sh -c "chown -R 10001:10001 /static /data" || true
+
                     docker compose -f docker-compose.yml -f docker-compose.observability.app.yml \
                         up --build -d backend frontend ocr-service redis promtail
                 '''
