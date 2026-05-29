@@ -26,8 +26,8 @@ test.describe('메인 저니: 강의 검색 → 시간표 담기', () => {
     const firstRow = page.locator('table tbody tr').first()
     await expect(firstRow).toBeVisible({ timeout: 5000 })
 
-    // 첫 행의 "추가" 버튼 → 슬롯 dropdown 펼침
-    const firstAddBtn = firstRow.locator('button:has-text("추가")')
+    // 첫 행의 "추가" 아이콘 버튼 → 슬롯 dropdown 펼침
+    const firstAddBtn = firstRow.locator('button[aria-label="시간표 슬롯에 추가"]')
     await firstAddBtn.click()
 
     // 아직 담기지 않은 슬롯이 있으면 거기 클릭. 모두 이미 담겨있으면 skip.
