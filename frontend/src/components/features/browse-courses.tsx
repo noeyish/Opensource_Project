@@ -167,7 +167,7 @@ export function BrowseCourses({
                 return (
                   <tr
                     key={`${course.id}-${i}`}
-                    className={`h-12 border-b border-border last:border-0 transition-colors hover:bg-muted/30 ${
+                    className={`min-h-12 border-b border-border last:border-0 transition-colors hover:bg-muted/30 ${
                       i % 2 === 0 ? "" : "bg-muted/10"
                     }`}
                   >
@@ -183,7 +183,7 @@ export function BrowseCourses({
                           className="text-xs font-medium hover:underline flex items-center gap-1 min-w-0"
                           style={{ color: "#B0232A" } as React.CSSProperties}
                         >
-                          <span className="truncate">{course.name}</span>
+                          <span className="line-clamp-2 break-keep leading-tight">{course.name}</span>
                           <ExternalLink className="h-2.5 w-2.5 flex-shrink-0" />
                         </Link>
                         <span className="sm:hidden text-xs text-muted-foreground truncate flex-shrink-0">
@@ -201,8 +201,8 @@ export function BrowseCourses({
                         {course.schedule}
                       </span>
                     </td>
-                    <td className="px-4 py-0 align-middle">
-                      <div className="flex h-12 items-center justify-end gap-2">
+                    <td className="px-4 py-2 align-middle">
+                      <div className="flex min-h-12 items-center justify-end gap-2">
                         {/* 슬롯 추가 — 추가 버튼 클릭 시 absolute dropdown 으로 슬롯 목록 펼침.
                             테이블 td 폭이 좁아 inline 펼침이 잘렸던 문제 해결을 위해 absolute 사용. */}
                         <div className="relative">
@@ -212,11 +212,11 @@ export function BrowseCourses({
                             onClick={() =>
                               setExpandedSlotRow(expandedSlotRow === course.id ? null : course.id)
                             }
-                            className="h-7 px-2.5 text-xs gap-1 hover:bg-accent whitespace-nowrap"
+                            aria-label="시간표 슬롯에 추가"
+                            className="h-7 w-7 p-0 hover:bg-accent"
                             style={{ color: "#B0232A", borderColor: "#B0232A" } as React.CSSProperties}
                           >
-                            <Plus className="h-3 w-3" />
-                            추가
+                            <Plus className="h-3.5 w-3.5" />
                           </Button>
 
                           {expandedSlotRow === course.id && (
